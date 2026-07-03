@@ -1,0 +1,138 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="container-fluid p-4">
+    <h4><i class="bi bi-chat-dots"></i> الاستفسارات الواردة</h4>
+    <div class="card mt-3">
+        <div class="card-body">
+            <div class="row mb-3">
+                <div class="col-md-3">
+                    <select class="form-select" id="statusFilter">
+                        <option value="">الكل</option>
+                        <option value="pending">⏳ معلق</option>
+                        <option value="replied">✅ تم الرد</option>
+                        <option value="closed">🔒 مغلق</option>
+                    </select>
+                </div>
+                <div class="col-md-3">
+                    <select class="form-select" id="sourceFilter">
+                        <option value="">كل المصادر</option>
+                        <option value="whatsapp">واتساب</option>
+                        <option value="facebook">فيسبوك</option>
+                        <option value="phone">هاتف</option>
+                        <option value="email">بريد</option>
+                        <option value="other">أخرى</option>
+                    </select>
+                </div>
+            </div>
+            <div class="table-responsive">
+                <table class="table table-hover">
+                    <thead class="table-light">
+                        <tr>
+                            <th>العميل</th>
+                            <th>المصدر</th>
+                            <th>الرسالة</th>
+                            <th>المنتج</th>
+                            <th>الأولوية</th>
+                            <th>الحالة</th>
+                            <th>التاريخ</th>
+                            <th>تحكم</th>
+                        </tr>
+                    </thead>
+                    <tbody id="inquiriesBody"></tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Reply Modal -->
+<div class="modal fade" id="replyModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">رد على الاستفسار</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" id="replyInquiryId">
+                <div class="alert alert-info" id="replyInfo"></div>
+                <div class="mb-2">
+                    <label class="form-label">الرد:</label>
+                    <textarea class="form-control" id="replyText" rows="4" placeholder="اكتب ردك..."></textarea>
+                </div>
+                <button class="btn btn-success" onclick="sendReply()"><i class="bi bi-send"></i> إرسال الرد</button>
+                <button class="btn btn-danger" onclick="closeInquiry()"><i class="bi bi-lock"></i> إغلاق</button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+async function loadInquiries() {
+    const status = document.getElementById('statusFilter').value;
+    const source = document.getElementById('sourceFilter').value;
+    const res = await axios.get('/api/inquiries', { params: { status, source } });
+    const tbody = document.getElementById('inquiriesBody');
+    const sourceMap = {whatsapp:'واتساب',facebook:'فيسبوك',phone:'هاتف',email:'بريد',other:'أخرى'};
+    const priorityMap = {low:'🟢 منخفضة',medium:'🟡 متوسطة',high:'🔴 عالية'};
+    const statusMap = {pending:'⏳ معلق',replied:'✅ تم الرد',closed:'🔒 مغلق'};
+    tbody.innerHTML = res.data.map(i => `
+        <tr class="${i.status === 'pending' ? 'table-warning' : ''}">
+            <td><strong>${i.customer_name || 'غير معروف'}</strong></td>
+            <td>${sourceMap[i.source] || i.source}</td>
+            <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${i.message || ''}</td>
+            <td>${i.product_name || ''}</td>
+            <td>${priorityMap[i.priority] || ''}</td>
+            <td>${statusMap[i.status] || ''}</td>
+            <td>${i.created_at}</td>
+            <td>
+                <button class="btn btn-sm btn-success" onclick="openReply(${i.id})"><i class="bi bi-reply"></i></button>
+                ${i.status !== 'closed' ? `<button class="btn btn-sm btn-secondary" onclick="quickClose(${i.id})"><i class="bi bi-lock"></i></button>` : ''}
+            </td>
+        </tr>
+    `).join('');
+}
+
+async function openReply(id) {
+    const res = await axios.get('/api/inquiries', { params: { status: '', source: '' } });
+    const inq = res.data.find(i => i.id === id);
+    if (!inq) return;
+    document.getElementById('replyInquiryId').value = id;
+    document.getElementById('replyInfo').innerHTML = `<strong>${inq.customer_name || 'غير معروف'}</strong>: ${inq.message || ''}`;
+    document.getElementById('replyText').value = '';
+    new bootstrap.Modal(document.getElementById('replyModal')).show();
+}
+
+async function sendReply() {
+    const id = document.getElementById('replyInquiryId').value;
+    const response = document.getElementById('replyText').value;
+    if (!response) { alert('اكتب الرد أولاً'); return; }
+    await axios.post('/api/inquiries', { id: parseInt(id), action: 'reply', response });
+    bootstrap.Modal.getInstance(document.getElementById('replyModal')).hide();
+    loadInquiries();
+}
+
+async function closeInquiry() {
+    const id = document.getElementById('replyInquiryId').value;
+    await axios.post('/api/inquiries', { id: parseInt(id), action: 'close' });
+    bootstrap.Modal.getInstance(document.getElementById('replyModal')).hide();
+    loadInquiries();
+}
+
+async function quickClose(id) {
+    if (confirm('إغلاق هذا الاستفسار؟')) {
+        await axios.post('/api/inquiries', { id, action: 'close' });
+        loadInquiries();
+    }
+}
+
+document.getElementById('statusFilter').addEventListener('change', loadInquiries);
+document.getElementById('sourceFilter').addEventListener('change', loadInquiries);
+loadInquiries();
+
+// Auto-refresh every 15 seconds
+setInterval(loadInquiries, 15000);
+</script>
+{% endblock %}

@@ -1,0 +1,12 @@
+services:
+  - type: web
+    name: printing-app
+    env: docker
+    dockerfilePath: ./Dockerfile
+    envVars:
+      - key: WA_SERVER
+        value: http://localhost:3000
+      - key: DATABASE_PATH
+        value: /app/printing_app.db
+      - key: PORT
+        value: 10000

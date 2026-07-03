@@ -1,0 +1,162 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="container-fluid p-4">
+    <h4><i class="bi bi-people"></i> إدارة العملاء</h4>
+    <div class="card mt-3">
+        <div class="card-body">
+            <div class="row mb-3">
+                <div class="col-md-4">
+                    <input type="text" class="form-control" id="searchInput" placeholder="🔍 بحث عن عميل...">
+                </div>
+                <div class="col-md-2">
+                    <button class="btn btn-success w-100" data-bs-toggle="modal" data-bs-target="#customerModal" onclick="openCustomerModal()">
+                        <i class="bi bi-plus-lg"></i> إضافة
+                    </button>
+                </div>
+                <div class="col-md-2">
+                    <button class="btn btn-outline-warning w-100" onclick="sendBulkWhatsApp()">
+                        <i class="bi bi-whatsapp"></i> إرسال للكل
+                    </button>
+                </div>
+            </div>
+            <div class="table-responsive">
+                <table class="table table-hover" id="customersTable">
+                    <thead class="table-light">
+                        <tr>
+                            <th>الاسم</th>
+                            <th>الهاتف</th>
+                            <th>واتساب</th>
+                            <th>فيسبوك</th>
+                            <th>البريد</th>
+                            <th>العنوان</th>
+                            <th>تحكم</th>
+                        </tr>
+                    </thead>
+                    <tbody id="customersBody"></tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="customerModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="customerModalTitle">إضافة عميل</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" id="editCustomerId">
+                <div class="mb-2"><label class="form-label">الاسم *</label><input type="text" class="form-control" id="cName"></div>
+                <div class="row g-2 mb-2">
+                    <div class="col-6"><label class="form-label">الهاتف</label><input type="text" class="form-control" id="cPhone"></div>
+                    <div class="col-6"><label class="form-label">واتساب</label><input type="text" class="form-control" id="cWhatsapp"></div>
+                </div>
+                <div class="row g-2 mb-2">
+                    <div class="col-6"><label class="form-label">البريد</label><input type="email" class="form-control" id="cEmail"></div>
+                    <div class="col-6"><label class="form-label">فيسبوك</label><input type="text" class="form-control" id="cFb"></div>
+                </div>
+                <div class="mb-2"><label class="form-label">العنوان</label><input type="text" class="form-control" id="cAddress"></div>
+                <div class="mb-2"><label class="form-label">ملاحظات</label><textarea class="form-control" id="cNotes" rows="2"></textarea></div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-success" onclick="saveCustomer()">💾 حفظ</button>
+                <button class="btn btn-secondary" data-bs-dismiss="modal">إلغاء</button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let customers = [];
+
+async function loadCustomers() {
+    const search = document.getElementById('searchInput').value;
+    const res = await axios.get('/api/customers', { params: { search } });
+    customers = res.data;
+    const tbody = document.getElementById('customersBody');
+    tbody.innerHTML = customers.map(c => `
+        <tr>
+            <td><strong>${c.name}</strong> ${c.notes ? `<i class="bi bi-sticky text-muted small"></i>` : ''}</td>
+            <td dir="ltr">${c.phone || ''}</td>
+            <td>${c.whatsapp ? `<a href="https://wa.me/${c.whatsapp}" target="_blank" class="text-success"><i class="bi bi-whatsapp"></i> ${c.whatsapp}</a>` : ''}</td>
+            <td>${c.facebook_id || ''}</td>
+            <td>${c.email || ''}</td>
+            <td>${c.address || ''}</td>
+            <td>
+                <button class="btn btn-sm btn-warning" onclick="editCustomer(${c.id})"><i class="bi bi-pencil"></i></button>
+                <button class="btn btn-sm btn-danger" onclick="deleteCustomer(${c.id})"><i class="bi bi-trash"></i></button>
+                <button class="btn btn-sm btn-success" onclick="sendWhatsApp(${c.id})"><i class="bi bi-whatsapp"></i></button>
+            </td>
+        </tr>
+    `).join('');
+}
+
+function openCustomerModal(data) {
+    ['editCustomerId','cName','cPhone','cWhatsapp','cEmail','cFb','cAddress','cNotes'].forEach(id => {
+        const el = document.getElementById(id);
+        const key = id.replace('c','').toLowerCase();
+        if (id === 'editCustomerId') el.value = data?.id || '';
+        else if (id === 'cFb') el.value = data?.facebook_id || '';
+        else el.value = data?.[key] || '';
+    });
+    document.getElementById('customerModalTitle').textContent = data?.id ? 'تعديل عميل' : 'إضافة عميل';
+}
+
+function editCustomer(id) {
+    const c = customers.find(x => x.id === id);
+    if (c) { openCustomerModal(c); new bootstrap.Modal(document.getElementById('customerModal')).show(); }
+}
+
+async function saveCustomer() {
+    const id = document.getElementById('editCustomerId').value;
+    const data = {
+        name: document.getElementById('cName').value,
+        phone: document.getElementById('cPhone').value,
+        whatsapp: document.getElementById('cWhatsapp').value,
+        email: document.getElementById('cEmail').value,
+        facebook_id: document.getElementById('cFb').value,
+        address: document.getElementById('cAddress').value,
+        notes: document.getElementById('cNotes').value,
+    };
+    if (id) { data.id = parseInt(id); await axios.put('/api/customers', data); }
+    else { await axios.post('/api/customers', data); }
+    bootstrap.Modal.getInstance(document.getElementById('customerModal')).hide();
+    loadCustomers();
+}
+
+async function deleteCustomer(id) {
+    if (confirm('متأكد من حذف العميل؟')) {
+        await axios.delete('/api/customers', { params: { id } });
+        loadCustomers();
+    }
+}
+
+async function sendWhatsApp(id) {
+    const c = customers.find(x => x.id === id);
+    if (!c?.whatsapp) { alert('العميل ليس لديه رقم واتساب'); return; }
+    const msg = prompt('اكتب الرسالة:', `مرحباً ${c.name} 👋`);
+    if (!msg) return;
+    await axios.post('/api/whatsapp/send', { to: c.whatsapp, message: msg });
+    alert('تم الإرسال ✅');
+}
+
+async function sendBulkWhatsApp() {
+    const withWA = customers.filter(c => c.whatsapp);
+    if (!withWA.length) { alert('لا يوجد عملاء بأرقام واتساب'); return; }
+    const msg = prompt(`إرسال إلى ${withWA.length} عميل:\nاكتب الرسالة:`);
+    if (!msg) return;
+    for (const c of withWA) {
+        await axios.post('/api/whatsapp/send', { to: c.whatsapp, message: msg });
+        await new Promise(r => setTimeout(r, 500));
+    }
+    alert(`تم الإرسال إلى ${withWA.length} عميل ✅`);
+}
+
+document.getElementById('searchInput').addEventListener('input', loadCustomers);
+loadCustomers();
+</script>
+{% endblock %}

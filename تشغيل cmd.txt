@@ -1,0 +1,1 @@
+D:\prent\printing_app\venv\Scripts\python.exe D:\prent\printing_app\main.py

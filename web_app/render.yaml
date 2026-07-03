@@ -1,0 +1,15 @@
+services:
+  - type: web
+    name: printing-app
+    env: python
+    buildCommand: |
+      pip install -r web_app/requirements.txt
+      cd whatsapp_server && npm install
+    startCommand: |
+      cd whatsapp_server && node server.js &
+      cd web_app && gunicorn app:app --bind 0.0.0.0:$PORT --workers 2 --timeout 120
+    envVars:
+      - key: WA_SERVER
+        value: http://localhost:3000
+      - key: DATABASE_PATH
+        value: /app/printing_app.db

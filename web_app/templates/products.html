@@ -1,0 +1,217 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="container-fluid p-4">
+    <h4><i class="bi bi-box"></i> إدارة المنتجات</h4>
+    <div class="card mt-3">
+        <div class="card-body">
+            <div class="row mb-3">
+                <div class="col-md-4">
+                    <input type="text" class="form-control" id="searchInput" placeholder="🔍 بحث عن منتج...">
+                </div>
+                <div class="col-md-3">
+                    <select class="form-select" id="categoryFilter">
+                        <option value="">كل الفئات</option>
+                        {% for c in categories %}
+                        <option value="{{ c.id }}">{{ c.name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="col-md-2">
+                    <button class="btn btn-success w-100" data-bs-toggle="modal" data-bs-target="#productModal" onclick="openProductModal()">
+                        <i class="bi bi-plus-lg"></i> إضافة
+                    </button>
+                </div>
+                <div class="col-md-3">
+                    <button class="btn btn-outline-info w-100" onclick="exportProducts()">
+                        <i class="bi bi-download"></i> تصدير Excel
+                    </button>
+                </div>
+            </div>
+            <div class="table-responsive">
+                <table class="table table-hover" id="productsTable">
+                    <thead class="table-light">
+                        <tr>
+                            <th>الاسم</th>
+                            <th>الفئة</th>
+                            <th>الكود</th>
+                            <th>السعر</th>
+                            <th>التكلفة</th>
+                            <th>الكمية</th>
+                            <th>الحد الأدنى</th>
+                            <th>تحكم</th>
+                        </tr>
+                    </thead>
+                    <tbody id="productsBody"></tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Product Modal -->
+<div class="modal fade" id="productModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="productModalTitle">إضافة منتج</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" id="editProductId">
+                <div class="mb-2">
+                    <label class="form-label">الاسم *</label>
+                    <input type="text" class="form-control" id="pName">
+                </div>
+                <div class="mb-2">
+                    <label class="form-label">الفئة</label>
+                    <select class="form-select" id="pCategory">
+                        <option value="">-- اختر --</option>
+                        {% for c in categories %}
+                        <option value="{{ c.id }}">{{ c.name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="row g-2 mb-2">
+                    <div class="col-6">
+                        <label class="form-label">الكود (SKU)</label>
+                        <input type="text" class="form-control" id="pSku">
+                    </div>
+                    <div class="col-6">
+                        <label class="form-label">اللون</label>
+                        <input type="text" class="form-control" id="pColor">
+                    </div>
+                </div>
+                <div class="row g-2 mb-2">
+                    <div class="col-6">
+                        <label class="form-label">سعر البيع</label>
+                        <input type="number" class="form-control" id="pPrice" step="0.01">
+                    </div>
+                    <div class="col-6">
+                        <label class="form-label">التكلفة</label>
+                        <input type="number" class="form-control" id="pCost" step="0.01">
+                    </div>
+                </div>
+                <div class="row g-2 mb-2">
+                    <div class="col-6">
+                        <label class="form-label">الكمية</label>
+                        <input type="number" class="form-control" id="pQty">
+                    </div>
+                    <div class="col-6">
+                        <label class="form-label">الحد الأدنى</label>
+                        <input type="number" class="form-control" id="pMinQty" value="5">
+                    </div>
+                </div>
+                <div class="mb-2">
+                    <label class="form-label">المقاس</label>
+                    <input type="text" class="form-control" id="pSize">
+                </div>
+                <div class="mb-2">
+                    <label class="form-label">الوصف</label>
+                    <textarea class="form-control" id="pDesc" rows="2"></textarea>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-success" onclick="saveProduct()">💾 حفظ</button>
+                <button class="btn btn-secondary" data-bs-dismiss="modal">إلغاء</button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let products = [];
+
+async function loadProducts() {
+    const search = document.getElementById('searchInput').value;
+    const catId = document.getElementById('categoryFilter').value;
+    const res = await axios.get('/api/products', { params: { search, category_id: catId || undefined } });
+    products = res.data;
+    const tbody = document.getElementById('productsBody');
+    tbody.innerHTML = products.map(p => `
+        <tr>
+            <td>${p.name}</td>
+            <td>${p.category_name || ''}</td>
+            <td>${p.sku || ''}</td>
+            <td>${p.price.toFixed(2)}</td>
+            <td>${p.cost_price.toFixed(2)}</td>
+            <td><span class="badge bg-${p.quantity <= p.min_quantity ? 'danger' : 'success'}">${p.quantity}</span></td>
+            <td>${p.min_quantity}</td>
+            <td>
+                <button class="btn btn-sm btn-warning" onclick="editProduct(${p.id})"><i class="bi bi-pencil"></i></button>
+                <button class="btn btn-sm btn-danger" onclick="deleteProduct(${p.id})"><i class="bi bi-trash"></i></button>
+            </td>
+        </tr>
+    `).join('');
+}
+
+function openProductModal(data) {
+    document.getElementById('editProductId').value = data?.id || '';
+    document.getElementById('pName').value = data?.name || '';
+    document.getElementById('pCategory').value = data?.category_id || '';
+    document.getElementById('pSku').value = data?.sku || '';
+    document.getElementById('pColor').value = data?.color || '';
+    document.getElementById('pPrice').value = data?.price || '';
+    document.getElementById('pCost').value = data?.cost_price || '';
+    document.getElementById('pQty').value = data?.quantity || '';
+    document.getElementById('pMinQty').value = data?.min_quantity || 5;
+    document.getElementById('pSize').value = data?.size || '';
+    document.getElementById('pDesc').value = data?.description || '';
+    document.getElementById('productModalTitle').textContent = data?.id ? 'تعديل منتج' : 'إضافة منتج';
+}
+
+function editProduct(id) {
+    const p = products.find(x => x.id === id);
+    if (p) {
+        openProductModal(p);
+        new bootstrap.Modal(document.getElementById('productModal')).show();
+    }
+}
+
+async function saveProduct() {
+    const id = document.getElementById('editProductId').value;
+    const data = {
+        name: document.getElementById('pName').value,
+        category_id: document.getElementById('pCategory').value || null,
+        sku: document.getElementById('pSku').value,
+        color: document.getElementById('pColor').value,
+        price: parseFloat(document.getElementById('pPrice').value) || 0,
+        cost_price: parseFloat(document.getElementById('pCost').value) || 0,
+        quantity: parseInt(document.getElementById('pQty').value) || 0,
+        min_quantity: parseInt(document.getElementById('pMinQty').value) || 5,
+        size: document.getElementById('pSize').value,
+        description: document.getElementById('pDesc').value,
+    };
+    if (id) {
+        data.id = parseInt(id);
+        await axios.put('/api/products', data);
+    } else {
+        await axios.post('/api/products', data);
+    }
+    bootstrap.Modal.getInstance(document.getElementById('productModal')).hide();
+    loadProducts();
+}
+
+async function deleteProduct(id) {
+    if (confirm('متأكد من حذف المنتج؟')) {
+        await axios.delete('/api/products', { params: { id } });
+        loadProducts();
+    }
+}
+
+function exportProducts() {
+    const csv = [['الاسم','الفئة','الكود','السعر','التكلفة','الكمية','الحد الأدنى']];
+    products.forEach(p => csv.push([p.name, p.category_name||'', p.sku||'', p.price, p.cost_price, p.quantity, p.min_quantity]));
+    const blob = new Blob([csv.map(r => r.join(',')).join('\n')], { type: 'text/csv' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'products.csv';
+    a.click();
+}
+
+document.getElementById('searchInput').addEventListener('input', loadProducts);
+document.getElementById('categoryFilter').addEventListener('change', loadProducts);
+loadProducts();
+</script>
+{% endblock %}

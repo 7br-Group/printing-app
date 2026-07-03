@@ -1,0 +1,23 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
+*.spec
+venv/
+.env
+
+# Node
+whatsapp_server/node_modules/
+whatsapp_server/.wwebjs_auth/
+whatsapp_server/.wwebjs_cache/
+whatsapp_server/node.exe
+
+# Database - don't include the default one
+*.db
+
+# OS
+.DS_Store
+Thumbs.db

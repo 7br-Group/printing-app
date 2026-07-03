@@ -1,0 +1,158 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="container-fluid p-4">
+    <ul class="nav nav-tabs mb-3" id="salesTabs">
+        <li class="nav-item"><a class="nav-link active" data-bs-toggle="tab" href="#newSale">🛒 فاتورة جديدة</a></li>
+        <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#salesHistory">📋 سجل المبيعات</a></li>
+    </ul>
+    <div class="tab-content">
+        <div class="tab-pane fade show active" id="newSale">
+            <div class="card"><div class="card-body">
+                <div class="row mb-3">
+                    <div class="col-md-4">
+                        <label class="form-label">العميل</label>
+                        <select class="form-select" id="saleCustomer">
+                            <option value="">-- اختر --</option>
+                            {% for c in customers %}<option value="{{ c.id }}">{{ c.name }}</option>{% endfor %}
+                        </select>
+                    </div>
+                </div>
+                <div class="row g-2 mb-3">
+                    <div class="col-md-5">
+                        <select class="form-select" id="saleProduct">
+                            {% for p in products %}<option value="{{ p.id }}" data-qty="{{ p.quantity }}">{{ p.name }} ({{ p.price }} ج.م - {{ p.quantity }} متاح)</option>{% endfor %}
+                        </select>
+                    </div>
+                    <div class="col-md-2">
+                        <input type="number" class="form-control" id="saleQty" value="1" min="1">
+                    </div>
+                    <div class="col-md-2">
+                        <button class="btn btn-primary w-100" onclick="addSaleItem()"><i class="bi bi-plus-lg"></i> إضافة</button>
+                    </div>
+                </div>
+                <div class="table-responsive mb-3">
+                    <table class="table table-bordered">
+                        <thead class="table-light"><tr><th>المنتج</th><th>الكمية</th><th>السعر</th><th>الإجمالي</th><th></th></tr></thead>
+                        <tbody id="saleItemsBody"></tbody>
+                    </table>
+                </div>
+                <div class="row g-2 align-items-center mb-3">
+                    <div class="col-md-2">
+                        <label class="form-label">الخصم</label>
+                        <input type="number" class="form-control" id="saleDiscount" value="0" step="0.01" oninput="updateSaleTotal()">
+                    </div>
+                    <div class="col-md-2">
+                        <label class="form-label">الضريبة</label>
+                        <input type="number" class="form-control" id="saleTax" value="0" step="0.01" oninput="updateSaleTotal()">
+                    </div>
+                    <div class="col-md-4">
+                        <h4 class="text-success" id="saleTotal">0.00 ج.م</h4>
+                    </div>
+                    <div class="col-md-4">
+                        <button class="btn btn-success w-100 btn-lg" onclick="confirmSale()"><i class="bi bi-check-circle"></i> تأكيد البيع</button>
+                    </div>
+                </div>
+            </div></div>
+        </div>
+        <div class="tab-pane fade" id="salesHistory">
+            <div class="card"><div class="card-body">
+                <div class="row g-2 mb-3">
+                    <div class="col-md-3"><input type="date" class="form-control" id="dateFrom"></div>
+                    <div class="col-md-3"><input type="date" class="form-control" id="dateTo"></div>
+                    <div class="col-md-2"><button class="btn btn-primary w-100" onclick="loadSales()"><i class="bi bi-search"></i> بحث</button></div>
+                </div>
+                <div class="table-responsive">
+                    <table class="table table-hover">
+                        <thead class="table-light"><tr><th>الفاتورة</th><th>العميل</th><th>المبلغ</th><th>الخصم</th><th>الإجمالي</th><th>التاريخ</th></tr></thead>
+                        <tbody id="salesHistoryBody"></tbody>
+                    </table>
+                </div>
+            </div></div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let saleItems = [];
+
+function addSaleItem() {
+    const sel = document.getElementById('saleProduct');
+    const id = parseInt(sel.value);
+    const name = sel.options[sel.selectedIndex].text.split(' (')[0];
+    const qty = parseInt(document.getElementById('saleQty').value);
+    const price = parseFloat(sel.options[sel.selectedIndex].text.match(/\(([\d.]+)/)?.[1] || 0);
+    const available = parseInt(sel.options[sel.selectedIndex].dataset.qty);
+    if (qty > available) { alert(`الكمية المتاحة: ${available}`); return; }
+    const existing = saleItems.find(i => i.product_id === id);
+    if (existing) {
+        if (existing.quantity + qty > available) { alert(`الكمية المتاحة: ${available}`); return; }
+        existing.quantity += qty;
+    } else {
+        saleItems.push({ product_id: id, product_name: name, quantity: qty, unit_price: price });
+    }
+    renderSaleItems();
+}
+
+function renderSaleItems() {
+    const tbody = document.getElementById('saleItemsBody');
+    tbody.innerHTML = saleItems.map((item, i) => `
+        <tr>
+            <td>${item.product_name}</td>
+            <td>${item.quantity}</td>
+            <td>${item.unit_price.toFixed(2)}</td>
+            <td>${(item.quantity * item.unit_price).toFixed(2)}</td>
+            <td><button class="btn btn-sm btn-danger" onclick="removeSaleItem(${i})">&times;</button></td>
+        </tr>
+    `).join('');
+    updateSaleTotal();
+}
+
+function removeSaleItem(i) { saleItems.splice(i, 1); renderSaleItems(); }
+
+function updateSaleTotal() {
+    const subtotal = saleItems.reduce((s, i) => s + i.quantity * i.unit_price, 0);
+    const discount = parseFloat(document.getElementById('saleDiscount').value) || 0;
+    const tax = parseFloat(document.getElementById('saleTax').value) || 0;
+    const total = subtotal - discount + tax;
+    document.getElementById('saleTotal').textContent = total.toFixed(2) + ' ج.م';
+}
+
+async function confirmSale() {
+    if (!saleItems.length) { alert('أضف منتجات أولاً'); return; }
+    await axios.post('/api/sales', {
+        customer_id: parseInt(document.getElementById('saleCustomer').value) || null,
+        items: saleItems,
+        discount: parseFloat(document.getElementById('saleDiscount').value) || 0,
+        tax: parseFloat(document.getElementById('saleTax').value) || 0,
+    });
+    alert('✅ تم تسجيل البيع بنجاح!');
+    saleItems = [];
+    renderSaleItems();
+    loadSales();
+}
+
+async function loadSales() {
+    const from = document.getElementById('dateFrom').value;
+    const to = document.getElementById('dateTo').value;
+    const res = await axios.get('/api/sales', { params: { from, to } });
+    const tbody = document.getElementById('salesHistoryBody');
+    tbody.innerHTML = res.data.map(s => `
+        <tr>
+            <td><strong>${s.invoice_number}</strong></td>
+            <td>${s.customer_name || ''}</td>
+            <td>${s.total_amount.toFixed(2)}</td>
+            <td>${s.discount.toFixed(2)}</td>
+            <td><strong>${s.final_amount.toFixed(2)}</strong></td>
+            <td>${s.created_at}</td>
+        </tr>
+    `).join('');
+}
+
+// Set default dates
+document.getElementById('dateFrom').value = new Date(Date.now() - 30*86400000).toISOString().split('T')[0];
+document.getElementById('dateTo').value = new Date().toISOString().split('T')[0];
+loadSales();
+</script>
+{% endblock %}

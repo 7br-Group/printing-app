@@ -1,0 +1,168 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="container-fluid p-4">
+    <h4><i class="bi bi-gear"></i> الإعدادات</h4>
+
+    <div class="row g-3 mt-2">
+        <div class="col-md-6">
+            <div class="card">
+                <div class="card-header"><i class="bi bi-building"></i> الإعدادات العامة</div>
+                <div class="card-body">
+                    <div class="mb-2">
+                        <label class="form-label">اسم الشركة</label>
+                        <input type="text" class="form-control" id="companyName">
+                    </div>
+                    <div class="mb-2">
+                        <label class="form-label">هاتف الشركة</label>
+                        <input type="text" class="form-control" id="companyPhone">
+                    </div>
+                    <div class="mb-2">
+                        <label class="form-label">واتساب الشركة</label>
+                        <input type="text" class="form-control" id="companyWhatsapp">
+                    </div>
+                    <button class="btn btn-success" onclick="saveSettings()"><i class="bi bi-save"></i> حفظ</button>
+                </div>
+            </div>
+
+            <div class="card mt-3">
+                <div class="card-header"><i class="bi bi-whatsapp text-success"></i> الردود التلقائية واتساب</div>
+                <div class="card-body">
+                    <div class="mb-2">
+                        <label class="form-label">رسالة الترحيب</label>
+                        <textarea class="form-control" id="welcomeMsg" rows="3">مرحباً بك! 👋
+شكراً لتواصلك معنا.
+كيف نقدر نساعدك؟</textarea>
+                    </div>
+                    <label class="form-label">ردود الكلمات المفتاحية</label>
+                    <div class="table-responsive mb-2">
+                        <table class="table table-sm">
+                            <thead><tr><th>الكلمة</th><th>الرد</th><th></th></tr></thead>
+                            <tbody id="keywordsBody"></tbody>
+                        </table>
+                    </div>
+                    <div class="row g-2 mb-2">
+                        <div class="col-4"><input type="text" class="form-control" id="keywordInput" placeholder="كلمة"></div>
+                        <div class="col-5"><input type="text" class="form-control" id="replyInput" placeholder="الرد التلقائي"></div>
+                        <div class="col-3"><button class="btn btn-primary w-100" onclick="addKeyword()"><i class="bi bi-plus-lg"></i></button></div>
+                    </div>
+                    <button class="btn btn-success" onclick="saveReplies()"><i class="bi bi-cloud-upload"></i> حفظ وتحديث السيرفر</button>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-md-6">
+            <div class="card">
+                <div class="card-header"><i class="bi bi-info-circle"></i> حالة واتساب</div>
+                <div class="card-body" id="waStatusCard">
+                    <p class="mb-1">الحالة: <span id="waStatusText" class="text-danger">⏳ جاري التحميل...</span></p>
+                    <p class="mb-1">الرقم: <span id="waPhone">-</span></p>
+                    <div id="waQrContainer" class="mt-2 p-3 bg-light text-center rounded" style="display:none">
+                        <p class="text-muted">امسح QR Code بواتساب:</p>
+                        <img id="waQrImage" style="max-width:250px">
+                    </div>
+                    <button class="btn btn-outline-primary mt-2" onclick="refreshWAStatus()"><i class="bi bi-arrow-clockwise"></i> تحديث</button>
+                </div>
+            </div>
+
+            <div class="card mt-3">
+                <div class="card-header"><i class="bi bi-database"></i> النسخ الاحتياطي</div>
+                <div class="card-body">
+                    <p class="text-muted">حمل نسخة احتياطية من قاعدة البيانات</p>
+                    <a href="/api/settings" class="btn btn-primary" onclick="alert('راح نضيف خاصية التحميل قريباً')"><i class="bi bi-download"></i> تحميل نسخة</a>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let keywords = [];
+
+async function loadSettings() {
+    const res = await axios.get('/api/settings');
+    document.getElementById('companyName').value = res.data.company_name || '';
+    document.getElementById('companyPhone').value = res.data.company_phone || '';
+    document.getElementById('companyWhatsapp').value = res.data.company_whatsapp || '';
+    document.getElementById('welcomeMsg').value = res.data.auto_welcome || 'مرحباً بك! 👋\nشكراً لتواصلك معنا.\nكيف نقدر نساعدك؟';
+    try { keywords = JSON.parse(res.data.auto_replies || '{}'); } catch(e) { keywords = {}; }
+    renderKeywords();
+    refreshWAStatus();
+}
+
+function renderKeywords() {
+    const tbody = document.getElementById('keywordsBody');
+    const entries = Object.entries(keywords);
+    tbody.innerHTML = entries.map(([k, v], i) => `
+        <tr>
+            <td>${k}</td>
+            <td>${v}</td>
+            <td><button class="btn btn-sm btn-danger" onclick="removeKeyword('${k}')"><i class="bi bi-x"></i></button></td>
+        </tr>
+    `).join('');
+    if (!entries.length) tbody.innerHTML = '<tr><td colspan="3" class="text-muted text-center">لا توجد كلمات مفتاحية</td></tr>';
+}
+
+function addKeyword() {
+    const key = document.getElementById('keywordInput').value.trim();
+    const val = document.getElementById('replyInput').value.trim();
+    if (!key || !val) { alert('اكتب الكلمة والرد'); return; }
+    keywords[key] = val;
+    document.getElementById('keywordInput').value = '';
+    document.getElementById('replyInput').value = '';
+    renderKeywords();
+}
+
+function removeKeyword(key) { delete keywords[key]; renderKeywords(); }
+
+async function saveReplies() {
+    const welcome = document.getElementById('welcomeMsg').value;
+    await axios.post('/api/whatsapp/replies', { replies: keywords, welcome });
+    alert('✅ تم حفظ وتحديث الردود على السيرفر');
+}
+
+async function saveSettings() {
+    await axios.post('/api/settings', {
+        company_name: document.getElementById('companyName').value,
+        company_phone: document.getElementById('companyPhone').value,
+        company_whatsapp: document.getElementById('companyWhatsapp').value,
+    });
+    alert('✅ تم حفظ الإعدادات');
+}
+
+async function refreshWAStatus() {
+    document.getElementById('waStatusText').textContent = '⏳ جاري التحميل...';
+    try {
+        const res = await axios.get('/api/whatsapp/status');
+        const data = res.data;
+        if (data.connected) {
+            document.getElementById('waStatusText').className = 'text-success';
+            document.getElementById('waStatusText').textContent = '✅ متصل';
+            document.getElementById('waPhone').textContent = data.phone || '-';
+            document.getElementById('waQrContainer').style.display = 'none';
+        } else if (data.qr) {
+            document.getElementById('waStatusText').className = 'text-warning';
+            document.getElementById('waStatusText').textContent = '🟡 في انتظار مسح QR';
+            document.getElementById('waQrContainer').style.display = 'block';
+            document.getElementById('waQrImage').src = '';
+            const qrRes = await axios.get('/api/whatsapp/status');
+            if (qrRes.data.qrDataUrl) {
+                document.getElementById('waQrImage').src = qrRes.data.qrDataUrl;
+            }
+        } else {
+            document.getElementById('waStatusText').className = 'text-danger';
+            document.getElementById('waStatusText').textContent = '🔴 الخادم متوقف';
+            document.getElementById('waQrContainer').style.display = 'none';
+        }
+    } catch(e) {
+        document.getElementById('waStatusText').className = 'text-danger';
+        document.getElementById('waStatusText').textContent = '🔴 الخادم متوقف';
+        document.getElementById('waQrContainer').style.display = 'none';
+    }
+}
+
+loadSettings();
+setInterval(refreshWAStatus, 10000);
+</script>
+{% endblock %}

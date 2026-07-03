@@ -1,0 +1,143 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="container-fluid p-4">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h2><i class="bi bi-speedometer2"></i> لوحة التحكم</h2>
+        <small class="text-muted">آخر تحديث: الآن</small>
+    </div>
+
+    <div class="row g-3 mb-4">
+        <div class="col-md-3">
+            <div class="card stat-card border-primary">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between">
+                        <h6 class="card-title text-muted">إجمالي المنتجات</h6>
+                        <i class="bi bi-box text-primary fs-3"></i>
+                    </div>
+                    <h3 class="text-primary">{{ stats.total_products }}</h3>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card stat-card border-danger">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between">
+                        <h6 class="card-title text-muted">منتجات منخفضة</h6>
+                        <i class="bi bi-exclamation-triangle text-danger fs-3"></i>
+                    </div>
+                    <h3 class="text-danger">{{ stats.low_stock_count }}</h3>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card stat-card border-success">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between">
+                        <h6 class="card-title text-muted">العملاء</h6>
+                        <i class="bi bi-people text-success fs-3"></i>
+                    </div>
+                    <h3 class="text-success">{{ stats.total_customers }}</h3>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card stat-card border-warning">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between">
+                        <h6 class="card-title text-muted">استفسارات معلقة</h6>
+                        <i class="bi bi-chat-dots text-warning fs-3"></i>
+                    </div>
+                    <h3 class="text-warning">{{ stats.pending_inquiries }}</h3>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card stat-card border-info">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between">
+                        <h6 class="card-title text-muted">مبيعات اليوم</h6>
+                        <i class="bi bi-cart text-info fs-3"></i>
+                    </div>
+                    <h3 class="text-info">{{ stats.today_sales }}</h3>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card stat-card border-success">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between">
+                        <h6 class="card-title text-muted">إيراد اليوم</h6>
+                        <i class="bi bi-cash-coin text-success fs-3"></i>
+                    </div>
+                    <h3 class="text-success">{{ stats.today_revenue|int }} ج.م</h3>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card stat-card border-primary">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between">
+                        <h6 class="card-title text-muted">إيراد الشهر</h6>
+                        <i class="bi bi-graph-up-arrow text-primary fs-3"></i>
+                    </div>
+                    <h3 class="text-primary">{{ stats.month_revenue|int }} ج.م</h3>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card stat-card border-warning">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between">
+                        <h6 class="card-title text-muted">قيمة المخزون</h6>
+                        <i class="bi bi-building text-warning fs-3"></i>
+                    </div>
+                    <h3 class="text-warning">{{ stats.total_stock_value|int }} ج.م</h3>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="card">
+        <div class="card-header bg-danger text-white">
+            <i class="bi bi-exclamation-triangle"></i> منتجات تحتاج إعادة طلب
+        </div>
+        <div class="card-body p-0">
+            <div class="table-responsive">
+                <table class="table table-hover mb-0">
+                    <thead class="table-light">
+                        <tr>
+                            <th>المنتج</th>
+                            <th>الفئة</th>
+                            <th>الكمية</th>
+                            <th>الحد الأدنى</th>
+                            <th>الحالة</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for p in low_stock %}
+                        <tr>
+                            <td>{{ p.name }}</td>
+                            <td>{{ p.category_name or '' }}</td>
+                            <td><span class="badge bg-{{ 'danger' if p.quantity == 0 else 'warning' }}">{{ p.quantity }}</span></td>
+                            <td>{{ p.min_quantity }}</td>
+                            <td>
+                                {% if p.quantity == 0 %}
+                                <span class="badge bg-danger">نقص حاد</span>
+                                {% else %}
+                                <span class="badge bg-warning">منخفض</span>
+                                {% endif %}
+                            </td>
+                        </tr>
+                        {% endfor %}
+                        {% if not low_stock %}
+                        <tr>
+                            <td colspan="5" class="text-center text-muted py-3">✅ كل المنتجات متوفرة</td>
+                        </tr>
+                        {% endif %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

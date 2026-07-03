@@ -1,0 +1,148 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="container-fluid p-4">
+    <ul class="nav nav-tabs mb-3">
+        <li class="nav-item"><a class="nav-link active" data-bs-toggle="tab" href="#stockTab">📦 المخزون</a></li>
+        <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#movementsTab">📋 حركات المخزون</a></li>
+        <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#categoriesTab">🏷️ الفئات</a></li>
+    </ul>
+    <div class="tab-content">
+        <div class="tab-pane fade show active" id="stockTab">
+            <div class="card"><div class="card-body">
+                <div class="table-responsive">
+                    <table class="table table-hover">
+                        <thead class="table-light"><tr><th>المنتج</th><th>الفئة</th><th>الكمية</th><th>الحد الأدنى</th><th>السعر</th><th>القيمة</th><th>تحكم</th></tr></thead>
+                        <tbody id="stockBody"></tbody>
+                    </table>
+                </div>
+            </div></div>
+        </div>
+        <div class="tab-pane fade" id="movementsTab">
+            <div class="card"><div class="card-body">
+                <div class="table-responsive">
+                    <table class="table table-hover">
+                        <thead class="table-light"><tr><th>التاريخ</th><th>المنتج</th><th>النوع</th><th>الكمية</th><th>المرجع</th><th>ملاحظات</th></tr></thead>
+                        <tbody id="movementsBody"></tbody>
+                    </table>
+                </div>
+            </div></div>
+        </div>
+        <div class="tab-pane fade" id="categoriesTab">
+            <div class="card"><div class="card-body">
+                <div class="row mb-3">
+                    <div class="col-md-3"><input type="text" class="form-control" id="catName" placeholder="اسم الفئة"></div>
+                    <div class="col-md-4"><input type="text" class="form-control" id="catDesc" placeholder="الوصف"></div>
+                    <div class="col-md-2"><button class="btn btn-success w-100" onclick="addCategory()"><i class="bi bi-plus-lg"></i> إضافة</button></div>
+                </div>
+                <table class="table table-hover"><thead class="table-light"><tr><th>#</th><th>الاسم</th><th>الوصف</th><th></th></tr></thead><tbody id="categoriesBody"></tbody></table>
+            </div></div>
+        </div>
+    </div>
+</div>
+
+<!-- Stock Adjust Modal -->
+<div class="modal fade" id="stockModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header"><h5 class="modal-title">تعديل المخزون</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+            <div class="modal-body">
+                <input type="hidden" id="stockProductId">
+                <p id="stockProductInfo"></p>
+                <div class="mb-2">
+                    <label class="form-label">نوع الحركة</label>
+                    <select class="form-select" id="stockType">
+                        <option value="in">📥 وارد (إضافة)</option>
+                        <option value="out">📤 صادر (خصم)</option>
+                        <option value="adjustment">📊 تعديل</option>
+                    </select>
+                </div>
+                <div class="mb-2">
+                    <label class="form-label" id="stockQtyLabel">الكمية</label>
+                    <input type="number" class="form-control" id="stockQty" min="1" value="1">
+                </div>
+                <div class="mb-2">
+                    <label class="form-label">ملاحظات</label>
+                    <input type="text" class="form-control" id="stockNotes" placeholder="اختياري">
+                </div>
+                <button class="btn btn-primary" onclick="saveStockAdjust()">💾 حفظ</button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+async function loadStock() {
+    const res = await axios.get('/api/products');
+    const tbody = document.getElementById('stockBody');
+    tbody.innerHTML = res.data.map(p => `
+        <tr>
+            <td>${p.name}</td>
+            <td>${p.category_name || ''}</td>
+            <td><span class="badge bg-${p.quantity <= p.min_quantity ? 'danger' : 'success'}">${p.quantity}</span></td>
+            <td>${p.min_quantity}</td>
+            <td>${p.price.toFixed(2)}</td>
+            <td>${(p.quantity * p.price).toFixed(2)}</td>
+            <td><button class="btn btn-sm btn-warning" onclick="openStockModal(${p.id}, '${p.name}', ${p.quantity})"><i class="bi bi-pencil"></i></button></td>
+        </tr>
+    `).join('');
+}
+
+async function loadMovements() {
+    const res = await axios.get('/api/inventory/movements');
+    const tbody = document.getElementById('movementsBody');
+    const typeMap = {in:'📥 وارد',out:'📤 صادر',adjustment:'📊 تعديل'};
+    tbody.innerHTML = res.data.map(m => `
+        <tr><td>${m.created_at}</td><td>${m.product_name || ''}</td>
+        <td>${typeMap[m.movement_type] || ''}</td><td>${m.quantity}</td>
+        <td>${m.reference || ''}</td><td>${m.notes || ''}</td></tr>
+    `).join('');
+}
+
+async function loadCategories() {
+    const res = await axios.get('/api/products');
+    const cats = [...new Set(res.data.filter(p => p.category_name).map(p => ({id: p.category_id, name: p.category_name, desc: ''})))];
+    const tbody = document.getElementById('categoriesBody');
+    tbody.innerHTML = cats.map((c, i) => `
+        <tr><td>${i+1}</td><td>${c.name}</td><td>${c.desc}</td>
+        <td><button class="btn btn-sm btn-danger" onclick="alert('احذف الفئة من قاعدة البيانات مباشرة')"><i class="bi bi-trash"></i></button></td></tr>
+    `).join('');
+    if (!cats.length) tbody.innerHTML = '<tr><td colspan="4" class="text-muted text-center">لا توجد فئات</td></tr>';
+}
+
+function openStockModal(id, name, qty) {
+    document.getElementById('stockProductId').value = id;
+    document.getElementById('stockProductInfo').textContent = `المنتج: ${name} | الكمية الحالية: ${qty}`;
+    document.getElementById('stockQty').value = 1;
+    document.getElementById('stockNotes').value = '';
+    new bootstrap.Modal(document.getElementById('stockModal')).show();
+}
+
+async function saveStockAdjust() {
+    const id = parseInt(document.getElementById('stockProductId').value);
+    const type = document.getElementById('stockType').value;
+    const qty = parseInt(document.getElementById('stockQty').value);
+    const notes = document.getElementById('stockNotes').value;
+    let change;
+    if (type === 'in') change = qty;
+    else if (type === 'out') change = -qty;
+    else change = 0; // adjustment - handled differently
+    await axios.post('/api/inventory', { action: 'adjust', product_id: id, change, movement_type: type, notes });
+    bootstrap.Modal.getInstance(document.getElementById('stockModal')).hide();
+    loadStock(); loadMovements();
+}
+
+async function addCategory() {
+    const name = document.getElementById('catName').value;
+    const desc = document.getElementById('catDesc').value;
+    if (!name) { alert('اكتب اسم الفئة'); return; }
+    await axios.post('/api/inventory', { action: 'add_category', name, description: desc });
+    document.getElementById('catName').value = '';
+    document.getElementById('catDesc').value = '';
+    loadCategories();
+}
+
+loadStock(); loadMovements(); loadCategories();
+</script>
+{% endblock %}
