@@ -442,6 +442,11 @@ function initClient() {
             }, 1500);
         }
     });
+
+    client.initialize().catch(err => {
+        console.error('Client init error:', err);
+        setTimeout(initClient, 5000);
+    });
 }
 
 app.get('/api/status', (req, res) => {
