@@ -448,5 +448,26 @@ class DatabaseManager:
 
     def backup_database(self, backup_path):
         import shutil
+        self.conn.close()
         shutil.copy2(self.db_path, backup_path)
+        self.conn = sqlite3.connect(self.db_path)
+        self.conn.row_factory = sqlite3.Row
+        self.conn.execute("PRAGMA foreign_keys = ON")
         return True
+
+    def restore_database(self, backup_path):
+        import shutil
+        if not os.path.exists(backup_path):
+            return False
+        try:
+            self.conn.close()
+            shutil.copy2(backup_path, self.db_path)
+            self.conn = sqlite3.connect(self.db_path)
+            self.conn.row_factory = sqlite3.Row
+            self.conn.execute("PRAGMA foreign_keys = ON")
+            return True
+        except:
+            self.conn = sqlite3.connect(self.db_path)
+            self.conn.row_factory = sqlite3.Row
+            self.conn.execute("PRAGMA foreign_keys = ON")
+            return False

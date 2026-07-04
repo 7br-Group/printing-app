@@ -426,6 +426,17 @@ class ProductDialog(QDialog):
         self.size_input = QLineEdit()
         form.addRow("المقاس:", self.size_input)
 
+        self.image_path = QLineEdit()
+        self.image_path.setReadOnly(True)
+        self.image_path.setPlaceholderText("اختر صورة المنتج...")
+        img_layout = QHBoxLayout()
+        img_layout.addWidget(self.image_path)
+        browse_img_btn = QPushButton("📷 تصفح")
+        browse_img_btn.setObjectName("primaryBtn")
+        browse_img_btn.clicked.connect(self.browse_image)
+        img_layout.addWidget(browse_img_btn)
+        form.addRow("صورة المنتج:", img_layout)
+
         layout.addLayout(form)
 
         btn_layout = QHBoxLayout()
@@ -449,6 +460,14 @@ class ProductDialog(QDialog):
         if product_id:
             self.load_product()
 
+    def browse_image(self):
+        path, _ = QFileDialog.getOpenFileName(
+            self, "اختر صورة المنتج", "",
+            "Images (*.png *.jpg *.jpeg *.webp *.gif)"
+        )
+        if path:
+            self.image_path.setText(path)
+
     def load_product(self):
         p = self.db.get_product_by_id(self.product_id)
         if p:
@@ -465,6 +484,7 @@ class ProductDialog(QDialog):
             self.min_qty_input.setValue(p["min_quantity"])
             self.color_input.setText(p["color"] or "")
             self.size_input.setText(p["size"] or "")
+            self.image_path.setText(p["image_path"] or "")
 
     def save(self):
         name = self.name_input.text().strip()
@@ -483,6 +503,7 @@ class ProductDialog(QDialog):
             "min_quantity": self.min_qty_input.value(),
             "color": self.color_input.text().strip(),
             "size": self.size_input.text().strip(),
+            "image_path": self.image_path.text().strip(),
         }
 
         if self.product_id:
@@ -1452,13 +1473,32 @@ class SettingsWidget(QWidget):
 
         layout.addWidget(network_group)
 
-        backup_group = QGroupBox("النسخ الاحتياطي")
+        backup_group = QGroupBox("🔄 النسخ الاحتياطي والاستعادة")
         backup_layout = QVBoxLayout(backup_group)
 
+        backup_info = QLabel(
+            "النسخ الاحتياطي يحفظ كل البيانات (المنتجات، العملاء، المبيعات، الاستفسارات)\n"
+            "استخدم الاستعادة لو اتلفت قاعدة البيانات أو عايز ترجع لنسخة قديمة"
+        )
+        backup_info.setStyleSheet("font-size: 12px; color: #7f8c8d; padding: 8px; background: #f8f9fa; border-radius: 5px;")
+        backup_info.setWordWrap(True)
+        backup_layout.addWidget(backup_info)
+
+        backup_btn_row = QHBoxLayout()
         backup_btn = QPushButton("💾 عمل نسخة احتياطية")
         backup_btn.setObjectName("primaryBtn")
+        backup_btn.setMinimumHeight(40)
         backup_btn.clicked.connect(self.backup_db)
-        backup_layout.addWidget(backup_btn)
+        backup_btn_row.addWidget(backup_btn)
+
+        restore_btn = QPushButton("📂 استعادة من نسخة احتياطية")
+        restore_btn.setObjectName("warningBtn")
+        restore_btn.setMinimumHeight(40)
+        restore_btn.clicked.connect(self.restore_db)
+        backup_btn_row.addWidget(restore_btn)
+
+        backup_btn_row.addStretch()
+        backup_layout.addLayout(backup_btn_row)
 
         layout.addWidget(backup_group)
         layout.addStretch()
@@ -1485,6 +1525,34 @@ class SettingsWidget(QWidget):
         if path:
             self.db.backup_database(path)
             QMessageBox.information(self, "نجاح", f"تم حفظ النسخة الاحتياطية في:\n{path}")
+
+    def restore_db(self):
+        path, _ = QFileDialog.getOpenFileName(
+            self, "اختر ملف النسخة الاحتياطية", "",
+            "Database (*.db)"
+        )
+        if not path:
+            return
+        reply = QMessageBox.question(
+            self, "⚠️ تأكيد",
+            "هل أنت متأكد؟\n\n"
+            "البيانات الحالية هتتستبدل بالكامل بالنسخة الاحتياطية!\n"
+            "ده مش هيأثر على الـ WhatsApp session ولا ملفات البرنامج.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+        )
+        if reply == QMessageBox.StandardButton.Yes:
+            if self.db.restore_database(path):
+                QMessageBox.information(
+                    self, "نجاح",
+                    "تم استعادة البيانات بنجاح!\n\n"
+                    "أغلق البرنامج وافتحه تاني عشان التغييرات تظهر."
+                )
+            else:
+                QMessageBox.warning(
+                    self, "خطأ",
+                    "فشل في استعادة النسخة الاحتياطية!\n"
+                    "تأكد إن الملف سليم ومش مستخدم من برنامج تاني."
+                )
 
 
 # ===========================

@@ -1,5 +1,5 @@
 const express = require('express');
-const { Client, LocalAuth } = require('whatsapp-web.js');
+const { Client, LocalAuth, MessageMedia } = require('whatsapp-web.js');
 const qrcode = require('qrcode');
 const path = require('path');
 const fs = require('fs');
@@ -15,8 +15,16 @@ let lastQr = '';
 let autoReplies = {};
 let welcomeMessage = '';
 
-// Conversation memory: { phoneNumber: { productId, productName, step, lastMessage } }
+// Conversation memory: { phoneNumber: { productId, productName, step, lastMessage, quantity, paymentMethod } }
 const conversations = {};
+
+// Order flow states
+const ORDER_STEPS = {
+    NONE: 'none',
+    AWAITING_QUANTITY: 'awaiting_quantity',
+    AWAITING_PAYMENT: 'awaiting_payment',
+    CONFIRMED: 'confirmed'
+};
 
 // Customer product interest tracking
 const customerInterests = {}; // { phoneNumber: { productId, productName, count } }
@@ -72,7 +80,7 @@ async function refreshProducts() {
         const db = getDb();
         if (!db) return;
         await new Promise((resolve) => {
-            db.all('SELECT id, name, description, price, quantity FROM products WHERE is_active = 1', (err, rows) => {
+            db.all('SELECT id, name, description, price, quantity, image_path FROM products WHERE is_active = 1', (err, rows) => {
                 if (!err) productsCache = rows || [];
                 db.close();
                 resolve();
@@ -108,6 +116,13 @@ const EGYPTIAN_SYNONYMS = {
 const BUYING_KEYWORDS = ['عايز', 'عاوز', 'عي', 'محتاج', 'بدي', 'أطلب', 'اطلب', 'طلب', 'شراء', 'اشتري', 'اشترى', 'ابي'];
 const INQUIRY_KEYWORDS = ['سعر', 'كام', 'بكام', 'كم', 'price', 'موجود', 'متوفر', 'عندك', 'في'];
 const GREETING_KEYWORDS = ['السلام', 'السلام عليكم', 'سلام', 'مرحبا', 'أهلا', 'اهلا', 'hello', 'hi', 'صباح', 'مساء'];
+const LIST_KEYWORDS = ['عندك', 'المنتجات', 'products', 'القائمة', 'list', 'فيه', 'معاك'];
+const PAYMENT_KEYWORDS = {
+    'كاش': ['كاش', 'cash', 'نقد', 'نقدا'],
+    'بطاقة ائتمان': ['كارد', 'card', 'بطاقه', 'بطاقة', 'فيزا', 'mastercard'],
+    'فودافون كاش': ['فودافون', 'vodafone', 'فودافون كاش'],
+    'انستاباي': ['انستا', 'insta', 'انستاباي', 'تحويل', 'حواله'],
+};
 
 function normalizeArabic(text) {
     return text
@@ -240,22 +255,107 @@ function matchKeyword(message) {
 
 function formatProductReply(product, prefix = '') {
     const price = product.price ? `${product.price} ج.م` : 'غير محدد';
-    const available = product.quantity > 0 ? `متوفر (${product.quantity} قطعة)` : 'غير متوفر حالياً';
+    const available = product.quantity > 0 ? 'متوفر' : 'غير متوفر حالياً';
     return `${prefix}*${product.name}*\n💰 السعر: ${price}\n📦 الحالة: ${available}`;
+}
+
+function formatProductList(products) {
+    if (!products || products.length === 0) return 'لا توجد منتجات متاحة حالياً';
+    let reply = '*قائمة المنتجات المتاحة:*\n\n';
+    products.forEach((p, i) => {
+        reply += `${i+1}. *${p.name}* — ${p.price} ج.م\n`;
+    });
+    reply += '\nأرسل اسم المنتج لمعرفة سعره\nأو أرسل "عايز (اسم المنتج)" للشراء';
+    return reply;
+}
+
+function isListProductsRequest(message) {
+    const norm = normalizeArabic(message);
+    for (const kw of LIST_KEYWORDS) {
+        if (norm.includes(normalizeArabic(kw))) return true;
+    }
+    return false;
+}
+
+function detectPaymentMethod(message) {
+    const norm = normalizeArabic(message);
+    for (const [method, keywords] of Object.entries(PAYMENT_KEYWORDS)) {
+        for (const kw of keywords) {
+            if (norm.includes(kw)) return method;
+        }
+    }
+    return null;
+}
+
+function getProductImagePath(product) {
+    if (!product || !product.image_path) return null;
+    const imgPath = product.image_path;
+    if (fs.existsSync(imgPath)) return imgPath;
+    // Try relative to DB_PATH
+    const relPath = path.join(path.dirname(DB_PATH), imgPath);
+    if (fs.existsSync(relPath)) return relPath;
+    return null;
 }
 
 async function getAutoReply(message, fromNumber) {
     const normalized = normalizeArabic(message);
 
-    // 1. Check greeting
+    // Check for existing conversation (order flow)
+    const conv = conversations[fromNumber];
+
+    // === ORDER FLOW: Awaiting quantity ===
+    if (conv && conv.step === ORDER_STEPS.AWAITING_QUANTITY) {
+        const qty = extractNumber(message);
+        if (qty && qty > 0) {
+            conv.quantity = qty;
+            conv.step = ORDER_STEPS.AWAITING_PAYMENT;
+            return `حضرتك عايز ${qty} قطعة من *${conv.productName}*\n\nإزاي تحب تدفع؟\n1️⃣ كاش\n2️⃣ بطاقة ائتمان\n3️⃣ فودافون كاش\n4️⃣ انستاباي`;
+        }
+        if (normalized.includes('لا') || normalized.includes('مش') || normalized.includes('الف')) {
+            conv.step = ORDER_STEPS.NONE;
+            return 'تمام، لو احتجت أي حاجة تاني أنا موجود 🤝';
+        }
+        return `من فضلك اكتب العدد المطلوب (مثلاً: 5)\nأو أرسل "لا" للإلغاء`;
+    }
+
+    // === ORDER FLOW: Awaiting payment ===
+    if (conv && conv.step === ORDER_STEPS.AWAITING_PAYMENT) {
+        const method = detectPaymentMethod(message);
+        if (method) {
+            conv.paymentMethod = method;
+            conv.step = ORDER_STEPS.CONFIRMED;
+
+            // Save as high-priority inquiry
+            const db = getDb();
+            if (db) {
+                const inquiryMsg = `🛒 *طلب جديد*\nالمنتج: ${conv.productName}\nالكمية: ${conv.quantity}\nطريقة الدفع: ${method}\تيلفون: ${fromNumber}`;
+                db.run(
+                    `INSERT INTO inquiries (customer_id, source, message, product_id, status, priority)
+                     VALUES (NULL, 'whatsapp', ?, ?, 'pending', 'high')`,
+                    [inquiryMsg, conv.productId]
+                );
+                db.close();
+            }
+
+            return `✅ *تم تسجيل طلبك!*\n\nالمنتج: *${conv.productName}*\nالكمية: ${conv.quantity}\nطريقة الدفع: ${method}\n\nسنقوم بالتواصل معك قريباً لتأكيد الطلب وشحن المنتج.\nشكراً لتسوقك معنا! 🙏`;
+        }
+        return `طريقة الدفع غير معروفة. اختر:\n1️⃣ كاش\n2️⃣ بطاقة ائتمان\n3️⃣ فودافون كاش\n4️⃣ انستاباي`;
+    }
+
+    // === Greeting ===
     if (isGreeting(message) && welcomeMessage) {
         return welcomeMessage;
     }
 
-    // 2. Refresh products from DB
+    // === Refresh products ===
     await refreshProducts();
 
-    // 3. Try to match a product
+    // === Check if asking for product list ===
+    if (isListProductsRequest(message)) {
+        return formatProductList(productsCache);
+    }
+
+    // === Try to match a product ===
     const matchedProduct = matchProduct(message, productsCache);
 
     if (matchedProduct) {
@@ -269,51 +369,66 @@ async function getAutoReply(message, fromNumber) {
         }
         customerInterests[fromNumber][interestKey].count++;
 
-        // Check if this is a buying intent
-        if (hasBuyingIntent(message)) {
-            // Customer wants to buy - save as high-priority inquiry
-            const db = getDb();
-            if (db) {
-                const inquiryMsg = `🛒 *طلب شراء*\nالعميل: ${fromNumber}\nالمنتج: ${matchedProduct.name}\nالرسالة: ${message}`;
-                db.run(
-                    `INSERT INTO inquiries (customer_id, source, message, product_id, status, priority)
-                     VALUES (NULL, 'whatsapp', ?, ?, 'pending', 'high')`,
-                    [inquiryMsg, matchedProduct.id]
-                );
-                db.close();
-            }
-            return `${formatProductReply(matchedProduct, '✅ ')}\n\nهل تريد تأكيد الطلب؟\nأرسل "تأكيد" أو "أكيد"`;
-        }
+        // Set conversation memory with product
+        conversations[fromNumber] = {
+            productId: matchedProduct.id,
+            productName: matchedProduct.name,
+            step: ORDER_STEPS.NONE,
+            lastMessage: message,
+            timestamp: Date.now()
+        };
 
-        // It's a price inquiry or info request
-        if (isInquiry(message) || true) {
+        // Buying intent
+        if (hasBuyingIntent(message)) {
+            // Start order flow: ask for quantity
+            conversations[fromNumber].step = ORDER_STEPS.AWAITING_QUANTITY;
             let reply = formatProductReply(matchedProduct, '');
             if (matchedProduct.description) {
                 reply += `\n📝 ${matchedProduct.description}`;
             }
-            reply += `\n\nهل تريد شراء هذا المنتج؟ أرسل "عايز ${matchedProduct.name}"`;
+            reply += `\n\nكم قطعة عايز من *${matchedProduct.name}*؟`;
+            return reply;
+        }
 
-            // Create a normal inquiry in DB
-            const db = getDb();
-            if (db) {
-                db.run(
-                    `INSERT INTO inquiries (customer_id, source, message, product_id, status, priority)
-                     VALUES (NULL, 'whatsapp', ?, ?, 'pending', 'medium')`,
-                    [`استفسار عن ${matchedProduct.name}: ${message}`, matchedProduct.id]
-                );
-                db.close();
-            }
+        // Price inquiry / info request
+        let reply = formatProductReply(matchedProduct, '');
+        if (matchedProduct.description) {
+            reply += `\n📝 ${matchedProduct.description}`;
+        }
+        reply += `\n\nعايز تشتري؟ أرسل "عايز ${matchedProduct.name}"`;
+
+        // Create inquiry in DB
+        const db = getDb();
+        if (db) {
+            db.run(
+                `INSERT INTO inquiries (customer_id, source, message, product_id, status, priority)
+                 VALUES (NULL, 'whatsapp', ?, ?, 'pending', 'medium')`,
+                [`استفسار عن ${matchedProduct.name}: ${message}`, matchedProduct.id]
+            );
+            db.close();
+        }
+        return reply;
+    }
+
+    // === Check for order confirmation keywords ===
+    if (conv && conv.productId && (normalized.includes('تأكيد') || normalized.includes('أكيد') || normalized.includes('اكيد') || normalized.includes('تم'))) {
+        if (conv.step === ORDER_STEPS.CONFIRMED) {
+            return 'طلبك مسجل بالفعل! سنتواصل معك قريباً ✅';
+        }
+        if (conv.step === ORDER_STEPS.NONE) {
+            conversations[fromNumber].step = ORDER_STEPS.AWAITING_QUANTITY;
+            let reply = `كم قطعة عايز من *${conv.productName}*؟`;
             return reply;
         }
     }
 
-    // 4. Try keyword-based auto-reply (with synonym support)
+    // === Try keyword-based auto-reply ===
     const keywordReply = matchKeyword(message);
     if (keywordReply) {
         return keywordReply;
     }
 
-    // 5. Generic inquiry - save to DB
+    // === Generic inquiry - save to DB ===
     const db = getDb();
     if (db) {
         db.run(
@@ -324,13 +439,12 @@ async function getAutoReply(message, fromNumber) {
         db.close();
     }
 
-    // 6. Check conversation memory for follow-up
-    const conv = conversations[fromNumber];
-    if (conv && conv.productId) {
+    // === Follow-up from conversation memory ===
+    if (conv && conv.productId && conv.step !== ORDER_STEPS.CONFIRMED) {
         return `هل تزال مهتماً بـ *${conv.productName}*؟\nأرسل "سعر ${conv.productName}" أو "عايز ${conv.productName}"`;
     }
 
-    // 7. Default reply
+    // === Default reply ===
     return null;
 }
 
@@ -438,11 +552,27 @@ function initClient() {
         conversations[number] = { lastMessage: msg.body, timestamp: Date.now() };
 
         // Get smart reply
-        const reply = await getAutoReply(msg.body, number);
-        if (reply) {
+        const result = await getAutoReply(msg.body, number);
+        if (result) {
             setTimeout(() => {
-                client.sendMessage(msg.from, reply);
+                client.sendMessage(msg.from, result);
             }, 1500);
+        }
+
+        // Send product image if one was matched
+        const matchedProduct = matchProduct(msg.body, productsCache);
+        if (matchedProduct) {
+            const imgPath = getProductImagePath(matchedProduct);
+            if (imgPath) {
+                setTimeout(() => {
+                    try {
+                        const media = MessageMedia.fromFilePath(imgPath);
+                        client.sendMessage(msg.from, media);
+                    } catch (e) {
+                        console.error('Image send error:', e.message);
+                    }
+                }, 2500);
+            }
         }
     });
 
