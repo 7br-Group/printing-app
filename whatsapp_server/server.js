@@ -332,8 +332,6 @@ async function getAutoReply(message, fromNumber) {
 }
 
 function initClient() {
-    const sessionPath = path.join(__dirname, '.wwebjs_auth');
-
     client = new Client({
         authStrategy: new LocalAuth({ dataPath: path.join(__dirname, '.wwebjs_auth') }),
         puppeteer: {

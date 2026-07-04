@@ -1511,30 +1511,31 @@ class IntegrationWidget(QWidget):
         tabs.addTab(self.create_help_tab(), "❓ مساعدة")
         layout.addWidget(tabs)
 
+        # Auto-start server immediately
+        QTimer.singleShot(100, self.auto_start_server)
+
         # Timer to check status
         self.status_timer = QTimer()
         self.status_timer.timeout.connect(self.check_status)
         self.status_timer.start(3000)
-        
-        # Auto-start server after a short delay
-        QTimer.singleShot(1000, self.auto_start_server)
 
     def create_whatsapp_tab(self):
         widget = QWidget()
         layout = QVBoxLayout(widget)
 
-        header = QLabel("ربط واتساب Web - تلقائي")
+        header = QLabel("واتساب - متصل تلقائياً")
         header.setStyleSheet("font-size: 18px; font-weight: bold; color: #27ae60; margin-bottom: 10px;")
         layout.addWidget(header)
 
         info = QLabel(
-            "الخطوات:\n"
-            "1. اضغط 'تشغيل الخادم' تحت\n"
-            "2. هيظهر QR Code على الشاشة\n"
-            "3. افتح واتساب على تليفونك\n"
-            "4. روح الإعدادات ← أجهزة مربوطة ← ربط جهاز\n"
-            "5. امسح الـ QR Code\n"
-            "6. خلاص! هتبدأ تستقبل الرسائل تلقائياً"
+            "🔹 الخادم يشتغل تلقائياً بمجرد فتح البرنامج\n"
+            "🔹 مسح QR Code مرة واحدة فقط أول مرة\n"
+            "🔹 بعد كده يتصل لوحده كل ما تفتح البرنامج\n\n"
+            "لأول مرة فقط:\n"
+            "1. انتظر ظهور QR Code على الشاشة\n"
+            "2. افتح واتساب ← الإعدادات ← أجهزة مربوطة ← ربط جهاز\n"
+            "3. امسح QR Code\n"
+            "4. خلاص! بعد كده يتصل تلقائياً"
         )
         info.setStyleSheet("font-size: 13px; color: #2c3e50; padding: 15px; background: #e8f5e9; border-radius: 8px;")
         info.setWordWrap(True)
@@ -1666,24 +1667,27 @@ class IntegrationWidget(QWidget):
         layout.addWidget(header)
 
         help_text = QLabel(
-            "<h3>📱 خطوات الربط (مجاني وشغال):</h3>"
-            "<p><b>1.</b> اضغط 'تشغيل الخادم' في تبويب واتساب</p>"
-            "<p><b>2.</b> هيظهر QR Code على الشاشة</p>"
-            "<p><b>3.</b> افتح واتساب على تليفونك</p>"
-            "<p><b>4.</b> روح: الإعدادات ← أجهزة مربوطة ← ربط جهاز</p>"
-            "<p><b>5.</b> امسح الـ QR Code بالكاميرا</p>"
-            "<p><b>6.</b> خلاص! واتساب اتربط</p>"
+            "<h3>📱 التشغيل التلقائي:</h3>"
+            "<p>الخادم يشتغل تلقائياً بمجرد فتح البرنامج</p>"
+            "<p>أول مرة فقط هتظهر QR Code لمسحه</p>"
+            "<p>بعد كده يتصل لوحده كل مرة</p>"
             "<br>"
-            "<h3>💡 ملاحظات مهمة:</h3>"
-            "<p>- لازم تليفونك يكون متصل بالنت</p>"
+            "<h3>📱 أول مرة:</h3>"
+            "<p><b>1.</b> الخادم هيشتغل تلقائياً</p>"
+            "<p><b>2.</b> هيظهر QR Code على الشاشة</p>"
+            "<p><b>3.</b> افتح واتساب: الإعدادات ← أجهزة مربوطة ← ربط جهاز</p>"
+            "<p><b>4.</b> امسح QR Code</p>"
+            "<p><b>5.</b> خلاص! بعد كده يتصل تلقائياً</p>"
+            "<br>"
+            "<h3>💡 ملاحظات:</h3>"
+            "<p>- التليفون لازم يكون متصل بالنت</p>"
             "<p>- ممكن تربط 4 أجهزة واتساب Web</p>"
-            "<p>- لو اتقطع، اعمل 'تحديث الحالة' أو أعد تشغيل الخادم</p>"
-            "<p>- الردود التلقائية هتشتغل تلقائياً</p>"
+            "<p>- لو حصل مشكلة، استخدم 'تحديث الحالة'</p>"
+            "<p>- لو اتقطع نهائياً، ارجع للتبويب واتساب واضغط 'تشغيل الخادم'</p>"
             "<br>"
             "<h3>⚠️ تحذير:</h3>"
             "<p>- دي طريقة غير رسمية (WhatsApp Web.js)</p>"
             "<p>- ممكن واتساب يقفل الحساب مؤقتاً</p>"
-            "<p>- استخدمها بحذر</p>"
         )
         help_text.setStyleSheet("font-size: 13px; color: #2c3e50; padding: 15px; background: #f8f9fa; border-radius: 8px;")
         help_text.setWordWrap(True)
