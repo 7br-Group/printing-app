@@ -1,6 +1,7 @@
 import os
 import sys
 import json
+import base64
 import requests
 from datetime import datetime
 from PySide6.QtCore import Qt, QTimer
@@ -16,7 +17,7 @@ from PySide6.QtWidgets import (
     QApplication, QInputDialog,
 )
 from PySide6.QtCore import Qt, QDate, QSize
-from PySide6.QtGui import QFont, QIcon, QColor
+from PySide6.QtGui import QFont, QIcon, QColor, QPixmap
 
 from database.db_manager import DatabaseManager
 
@@ -829,9 +830,9 @@ class InquiriesWidget(QWidget):
         layout.addLayout(filter_layout)
 
         self.table = QTableWidget()
-        self.table.setColumnCount(8)
+        self.table.setColumnCount(9)
         self.table.setHorizontalHeaderLabels([
-            "ID", "العميل", "المصدر", "الرسالة", "المنتج", "الأولوية", "الحالة", "التاريخ"
+            "ID", "العميل", "رقم الهاتف", "المنتج", "المصدر", "الرسالة", "الأولوية", "الحالة", "التاريخ"
         ])
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
@@ -876,12 +877,13 @@ class InquiriesWidget(QWidget):
         for i, inq in enumerate(inquiries):
             self.table.setItem(i, 0, QTableWidgetItem(str(inq["id"])))
             self.table.setItem(i, 1, QTableWidgetItem(inq["customer_name"] or "غير معروف"))
-            self.table.setItem(i, 2, QTableWidgetItem(source_display.get(inq["source"], "")))
-            self.table.setItem(i, 3, QTableWidgetItem(inq["message"] or ""))
-            self.table.setItem(i, 4, QTableWidgetItem(inq["product_name"] or ""))
-            self.table.setItem(i, 5, QTableWidgetItem(priority_display.get(inq["priority"], "")))
-            self.table.setItem(i, 6, QTableWidgetItem(status_display.get(inq["status"], "")))
-            self.table.setItem(i, 7, QTableWidgetItem(str(inq["created_at"])))
+            self.table.setItem(i, 2, QTableWidgetItem(inq["customer_phone"] or ""))
+            self.table.setItem(i, 3, QTableWidgetItem(inq["product_name"] or ""))
+            self.table.setItem(i, 4, QTableWidgetItem(source_display.get(inq["source"], "")))
+            self.table.setItem(i, 5, QTableWidgetItem(inq["message"] or ""))
+            self.table.setItem(i, 6, QTableWidgetItem(priority_display.get(inq["priority"], "")))
+            self.table.setItem(i, 7, QTableWidgetItem(status_display.get(inq["status"], "")))
+            self.table.setItem(i, 8, QTableWidgetItem(str(inq["created_at"])))
 
     def get_selected_id(self):
         rows = self.table.selectionModel().selectedRows()
@@ -926,8 +928,12 @@ class InquiryDialog(QDialog):
         self.customer_combo = QComboBox()
         self.customer_combo.addItem("-- اختر عميل (اختياري) --", None)
         for c in db.get_customers():
-            self.customer_combo.addItem(c["name"], c["id"])
+            self.customer_combo.addItem(f"{c['name']} - {c['phone'] or ''}", c["id"])
         form.addRow("العميل:", self.customer_combo)
+
+        self.phone_input = QLineEdit()
+        self.phone_input.setPlaceholderText("رقم الهاتف")
+        form.addRow("رقم الهاتف:", self.phone_input)
 
         self.source_combo = QComboBox()
         self.source_combo.addItems(["واتساب", "فيسبوك", "هاتف", "بريد", "أخرى"])
@@ -972,10 +978,15 @@ class InquiryDialog(QDialog):
                       "هاتف": "phone", "بريد": "email", "أخرى": "other"}
         priority_map = {"منخفضة": "low", "متوسطة": "medium", "عالية": "high"}
 
+        phone = self.phone_input.text().strip()
+        msg = self.message_input.toPlainText()
+        if phone:
+            msg = f"[هاتف: {phone}] {msg}"
+
         data = {
             "customer_id": self.customer_combo.currentData(),
             "source": source_map.get(self.source_combo.currentText(), "other"),
-            "message": self.message_input.toPlainText(),
+            "message": msg,
             "product_id": self.product_combo.currentData(),
             "priority": priority_map.get(self.priority_combo.currentText(), "medium"),
         }
@@ -1084,9 +1095,9 @@ class CustomersWidget(QWidget):
         layout.addLayout(btn_layout)
 
         self.table = QTableWidget()
-        self.table.setColumnCount(7)
+        self.table.setColumnCount(9)
         self.table.setHorizontalHeaderLabels([
-            "ID", "الاسم", "الهاتف", "واتساب", "فيسبوك", "البريد", "العنوان"
+            "ID", "العميل", "رقم الهاتف", "المنتج", "المصدر", "الرسالة", "الأولوية", "الحالة", "التاريخ"
         ])
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
@@ -1405,6 +1416,42 @@ class SettingsWidget(QWidget):
 
         layout.addWidget(general_group)
 
+        network_group = QGroupBox("🔗 الشبكة المحلية (مشاركة مع أجهزة أخرى)")
+        network_layout = QFormLayout(network_group)
+
+        self.server_mode = QComboBox()
+        self.server_mode.addItems(["خادم (Server) - هذا الجهاز هو الرئيسي", "عميل (Client) - يتصل بخادم آخر"])
+        self.server_mode.setCurrentIndex(0 if db.get_setting("network_mode", "server") == "server" else 1)
+        self.server_mode.currentIndexChanged.connect(self.toggle_network_mode)
+        network_layout.addRow("وضع الشبكة:", self.server_mode)
+
+        self.server_url = QLineEdit()
+        self.server_url.setPlaceholderText("http://192.168.1.100:5000")
+        self.server_url.setText(db.get_setting("server_url", "http://localhost:5000"))
+        network_layout.addRow("رابط الخادم:", self.server_url)
+
+        self.server_port = QSpinBox()
+        self.server_port.setRange(1024, 65535)
+        self.server_port.setValue(int(db.get_setting("server_port", "5000")))
+        network_layout.addRow("منفذ الخادم:", self.server_port)
+
+        self.local_ip = QLineEdit()
+        self.local_ip.setReadOnly(True)
+        try:
+            import socket
+            hostname = socket.gethostname()
+            self.local_ip.setText(f"{socket.gethostbyname(hostname)}:{self.server_port.value()}")
+        except:
+            self.local_ip.setText("غير معروف")
+        network_layout.addRow("IP هذا الجهاز:", self.local_ip)
+
+        info_label = QLabel("💡 في وضع الخادم، الأجهزة الأخرى تفتح المتصفح على الرابط أعلاه\nفي وضع العميل، البرنامج يتصل بالخادم المركزي")
+        info_label.setStyleSheet("font-size: 12px; color: #7f8c8d; padding: 8px; background: #f8f9fa; border-radius: 5px;")
+        info_label.setWordWrap(True)
+        network_layout.addRow(info_label)
+
+        layout.addWidget(network_group)
+
         backup_group = QGroupBox("النسخ الاحتياطي")
         backup_layout = QVBoxLayout(backup_group)
 
@@ -1416,10 +1463,17 @@ class SettingsWidget(QWidget):
         layout.addWidget(backup_group)
         layout.addStretch()
 
+    def toggle_network_mode(self):
+        mode = "server" if self.server_mode.currentIndex() == 0 else "client"
+        self.db.set_setting("network_mode", mode)
+
     def save_settings(self):
         self.db.set_setting("company_name", self.company_name.text())
         self.db.set_setting("company_phone", self.company_phone.text())
         self.db.set_setting("company_whatsapp", self.company_whatsapp.text())
+        self.db.set_setting("server_url", self.server_url.text())
+        self.db.set_setting("server_port", str(self.server_port.value()))
+        self.db.set_setting("network_mode", "server" if self.server_mode.currentIndex() == 0 else "client")
         QMessageBox.information(self, "نجاح", "تم حفظ الإعدادات بنجاح")
 
     def backup_db(self):
@@ -1685,7 +1739,8 @@ class IntegrationWidget(QWidget):
                 subprocess.run(
                     [node_path, "server.js"],
                     cwd=server_dir,
-                    creationflags=subprocess.CREATE_NEW_CONSOLE
+                    capture_output=True,
+                    creationflags=subprocess.CREATE_NO_WINDOW
                 )
             except Exception as e:
                 print(f"Server error: {e}")
@@ -1714,7 +1769,8 @@ class IntegrationWidget(QWidget):
                 subprocess.run(
                     [node_path, "server.js"],
                     cwd=server_dir,
-                    creationflags=subprocess.CREATE_NEW_CONSOLE
+                    capture_output=True,
+                    creationflags=subprocess.CREATE_NO_WINDOW
                 )
             except Exception as e:
                 print(f"Server error: {e}")
@@ -1748,12 +1804,14 @@ class IntegrationWidget(QWidget):
                 self.status_label.setStyleSheet("font-size: 16px; font-weight: bold; color: #27ae60; padding: 10px;")
                 self.phone_label.setText(f"الرقم: {data.get('phone', 'غير معروف')}")
                 self.qr_label.setText("✅ واتساب متصل بنجاح!\nالردود التلقائية شغالة")
+                self.qr_label.setPixmap(QPixmap())
+                self.qr_label.setMinimumHeight(60)
                 self.start_btn.setEnabled(False)
                 self.stop_btn.setEnabled(True)
             elif data.get('qr'):
                 self.status_label.setText("🟡 في انتظار مسح QR Code")
                 self.status_label.setStyleSheet("font-size: 16px; font-weight: bold; color: #f39c12; padding: 10px;")
-                self.qr_label.setText("📱 امسح الـ QR Code ده بواتساب:\n\nالإعدادات ← أجهزة مربوطة ← ربط جهاز")
+                self.fetch_and_show_qr()
                 self.start_btn.setEnabled(False)
                 self.stop_btn.setEnabled(True)
             else:
@@ -1763,8 +1821,34 @@ class IntegrationWidget(QWidget):
             self.status_label.setText("🔴 الخادم متوقف")
             self.status_label.setStyleSheet("font-size: 16px; font-weight: bold; color: #e74c3c; padding: 10px;")
             self.phone_label.setText("")
+            self.qr_label.setText("الخادم متوقف")
+            self.qr_label.setPixmap(QPixmap())
+            self.qr_label.setMinimumHeight(60)
             self.start_btn.setEnabled(True)
             self.stop_btn.setEnabled(False)
+
+    def fetch_and_show_qr(self):
+        try:
+            resp = requests.get(f"{WA_SERVER}/api/qr", timeout=2)
+            data = resp.json()
+            if data.get('qr'):
+                import base64
+                b64 = data['qr'].split(',')[1] if ',' in data['qr'] else data['qr']
+                img_data = base64.b64decode(b64)
+                pixmap = QPixmap()
+                pixmap.loadFromData(img_data)
+                scaled = pixmap.scaled(280, 280, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
+                self.qr_label.setPixmap(scaled)
+                self.qr_label.setMinimumHeight(300)
+                self.qr_label.setText("")
+                self.qr_label.setStyleSheet("padding: 10px; background: white; border: 2px solid #27ae60; border-radius: 8px;")
+            else:
+                self.qr_label.setText("📱 جاري تحميل QR Code...\n\nالإعدادات ← أجهزة مربوطة ← ربط جهاز")
+                self.qr_label.setPixmap(QPixmap())
+                self.qr_label.setMinimumHeight(200)
+                self.qr_label.setStyleSheet("font-size: 14px; color: #7f8c8d; padding: 20px; background: #f8f9fa; border-radius: 8px;")
+        except:
+            pass
 
     def add_auto_reply(self):
         keyword = self.keyword_input.text().strip()

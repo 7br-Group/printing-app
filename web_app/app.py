@@ -283,6 +283,33 @@ def whatsapp_send():
     except:
         return jsonify({'success': False, 'error': 'Server offline'})
 
+@app.route('/api/whatsapp/products')
+@login_required
+def whatsapp_products():
+    try:
+        resp = requests.get(f"{WA_SERVER}/api/products", timeout=3)
+        return jsonify(resp.json())
+    except:
+        return jsonify([])
+
+@app.route('/api/whatsapp/conversations')
+@login_required
+def whatsapp_conversations():
+    try:
+        resp = requests.get(f"{WA_SERVER}/api/conversations", timeout=3)
+        return jsonify(resp.json())
+    except:
+        return jsonify({})
+
+@app.route('/api/whatsapp/interests')
+@login_required
+def whatsapp_interests():
+    try:
+        resp = requests.get(f"{WA_SERVER}/api/interests", timeout=3)
+        return jsonify(resp.json())
+    except:
+        return jsonify({})
+
 @app.route('/api/stats')
 @login_required
 def api_stats():
