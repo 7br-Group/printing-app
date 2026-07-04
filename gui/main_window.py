@@ -1407,6 +1407,9 @@ class SettingsWidget(QWidget):
     def __init__(self, db):
         super().__init__()
         self.db = db
+        self.web_process = None
+        self.web_timer = QTimer()
+        self.web_timer.timeout.connect(self.check_web_status)
         layout = QVBoxLayout(self)
         layout.setContentsMargins(20, 20, 20, 20)
         layout.setSpacing(15)
@@ -1456,17 +1459,45 @@ class SettingsWidget(QWidget):
         self.server_port.setValue(int(db.get_setting("server_port", "5000")))
         network_layout.addRow("منفذ الخادم:", self.server_port)
 
+        # Web server status and controls
+        self.web_status = QLabel("🔴 متوقف")
+        self.web_status.setStyleSheet("font-size: 14px; font-weight: bold; color: #e74c3c; padding: 5px;")
+        network_layout.addRow("حالة الخادم:", self.web_status)
+
+        web_btn_row = QHBoxLayout()
+        self.start_web_btn = QPushButton("▶️ تشغيل خادم الويب")
+        self.start_web_btn.setObjectName("successBtn")
+        self.start_web_btn.clicked.connect(self.start_web_server)
+        web_btn_row.addWidget(self.start_web_btn)
+
+        self.stop_web_btn = QPushButton("⏹️ إيقاف")
+        self.stop_web_btn.setObjectName("dangerBtn")
+        self.stop_web_btn.clicked.connect(self.stop_web_server)
+        self.stop_web_btn.setEnabled(False)
+        web_btn_row.addWidget(self.stop_web_btn)
+
+        self.open_web_btn = QPushButton("🌐 فتح في المتصفح")
+        self.open_web_btn.setObjectName("primaryBtn")
+        self.open_web_btn.clicked.connect(self.open_web_browser)
+        self.open_web_btn.setEnabled(False)
+        web_btn_row.addWidget(self.open_web_btn)
+
+        web_btn_row.addStretch()
+        network_layout.addRow(web_btn_row)
+
         self.local_ip = QLineEdit()
         self.local_ip.setReadOnly(True)
-        try:
-            import socket
-            hostname = socket.gethostname()
-            self.local_ip.setText(f"{socket.gethostbyname(hostname)}:{self.server_port.value()}")
-        except:
-            self.local_ip.setText("غير معروف")
         network_layout.addRow("IP هذا الجهاز:", self.local_ip)
 
-        info_label = QLabel("💡 في وضع الخادم، الأجهزة الأخرى تفتح المتصفح على الرابط أعلاه\nفي وضع العميل، البرنامج يتصل بالخادم المركزي")
+        # Get actual LAN IP (not just hostname)
+        self.refresh_local_ip()
+
+        info_label = QLabel(
+            "💡 *الخادم*: الأجهزة الأخرى تفتح المتصفح على IP:port أعلاه\n"
+            "💡 *العميل*: البرنامج يتصل بالخادم المركزي\n"
+            "💡 الباسوورد الافتراضي: admin\n\n"
+            "للتجربة من نفس الجهاز افتح: http://localhost:5000"
+        )
         info_label.setStyleSheet("font-size: 12px; color: #7f8c8d; padding: 8px; background: #f8f9fa; border-radius: 5px;")
         info_label.setWordWrap(True)
         network_layout.addRow(info_label)
@@ -1503,9 +1534,128 @@ class SettingsWidget(QWidget):
         layout.addWidget(backup_group)
         layout.addStretch()
 
+        # Auto-start web server after a short delay
+        QTimer.singleShot(2000, self.auto_start_web_server)
+
+    def refresh_local_ip(self):
+        try:
+            import socket
+            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            s.connect(('8.8.8.8', 80))
+            ip = s.getsockname()[0]
+            s.close()
+            self.local_ip.setText(f"http://{ip}:{self.server_port.value()}")
+            self.current_ip = ip
+            self.current_port = self.server_port.value()
+        except:
+            try:
+                hostname = socket.gethostname()
+                ip = socket.gethostbyname(hostname)
+                self.local_ip.setText(f"http://{ip}:{self.server_port.value()}")
+                self.current_ip = ip
+                self.current_port = self.server_port.value()
+            except:
+                self.local_ip.setText("غير معروف")
+
+    def find_project_root(self):
+        if getattr(sys, 'frozen', False):
+            return os.path.dirname(sys.executable)
+        return os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+    def auto_start_web_server(self):
+        if self.server_mode.currentIndex() == 0:
+            self.start_web_server()
+
+    def start_web_server(self):
+        import subprocess
+        import threading
+
+        if self.web_process and self.web_process.poll() is None:
+            return
+
+        root = self.find_project_root()
+        python_exe = os.path.join(root, 'venv', 'Scripts', 'python.exe')
+        if not os.path.exists(python_exe):
+            python_exe = sys.executable
+
+        run_web_path = os.path.join(root, 'run_web.py')
+        if not os.path.exists(run_web_path):
+            QMessageBox.warning(self, "خطأ", "ملف run_web.py غير موجود!")
+            return
+
+        def run_web():
+            try:
+                env = os.environ.copy()
+                env['WA_SERVER'] = 'http://localhost:3000'
+                env['DATABASE_PATH'] = os.path.join(root, 'printing_app.db')
+                web_log = os.path.join(root, 'web_server.log')
+                with open(web_log, "a", encoding="utf-8") as log:
+                    self.web_process = subprocess.Popen(
+                        [python_exe, run_web_path],
+                        cwd=root,
+                        stdout=log,
+                        stderr=log,
+                        env=env,
+                        creationflags=subprocess.CREATE_NO_WINDOW
+                    )
+                    self.web_process.wait()
+            except Exception as e:
+                print(f"Web server error: {e}")
+
+        thread = threading.Thread(target=run_web, daemon=True)
+        thread.start()
+
+        self.start_web_btn.setEnabled(False)
+        self.stop_web_btn.setEnabled(True)
+        self.web_status.setText("🟡 جاري التشغيل...")
+        self.web_status.setStyleSheet("font-size: 14px; font-weight: bold; color: #f39c12; padding: 5px;")
+
+        # Start checking status
+        self.web_timer.start(2000)
+
+    def stop_web_server(self):
+        import subprocess
+        if self.web_process:
+            self.web_process.kill()
+            self.web_process = None
+        subprocess.run("taskkill /F /IM python.exe /FI \"WINDOWTITLE eq run_web*\"", shell=True, capture_output=True)
+        self.start_web_btn.setEnabled(True)
+        self.stop_web_btn.setEnabled(False)
+        self.open_web_btn.setEnabled(False)
+        self.web_status.setText("🔴 متوقف")
+        self.web_status.setStyleSheet("font-size: 14px; font-weight: bold; color: #e74c3c; padding: 5px;")
+        self.web_timer.stop()
+
+    def check_web_status(self):
+        port = self.server_port.value()
+        try:
+            import socket
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            sock.settimeout(1)
+            result = sock.connect_ex(('127.0.0.1', port))
+            sock.close()
+            if result == 0:
+                self.web_status.setText("🟢 شغال")
+                self.web_status.setStyleSheet("font-size: 14px; font-weight: bold; color: #27ae60; padding: 5px;")
+                self.open_web_btn.setEnabled(True)
+                self.start_web_btn.setEnabled(False)
+                self.stop_web_btn.setEnabled(True)
+                self.web_timer.stop()
+        except:
+            pass
+
+    def open_web_browser(self):
+        import webbrowser
+        port = self.server_port.value()
+        webbrowser.open(f"http://localhost:{port}")
+
     def toggle_network_mode(self):
         mode = "server" if self.server_mode.currentIndex() == 0 else "client"
         self.db.set_setting("network_mode", mode)
+        if mode == "server":
+            self.start_web_server()
+        else:
+            self.stop_web_server()
 
     def save_settings(self):
         self.db.set_setting("company_name", self.company_name.text())
