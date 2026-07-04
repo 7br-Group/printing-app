@@ -13,6 +13,7 @@ venv/
 whatsapp_server/node_modules/
 whatsapp_server/.wwebjs_auth/
 whatsapp_server/.wwebjs_cache/
+whatsapp_server/.wwebjs_test*/
 whatsapp_server/node.exe
 
 # Database - don't include the default one

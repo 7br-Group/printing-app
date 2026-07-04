@@ -71,9 +71,12 @@ async function refreshProducts() {
     try {
         const db = getDb();
         if (!db) return;
-        db.all('SELECT id, name, description, price, quantity FROM products WHERE is_active = 1', (err, rows) => {
-            if (!err) productsCache = rows || [];
-            db.close();
+        await new Promise((resolve) => {
+            db.all('SELECT id, name, description, price, quantity FROM products WHERE is_active = 1', (err, rows) => {
+                if (!err) productsCache = rows || [];
+                db.close();
+                resolve();
+            });
         });
     } catch {}
 }
