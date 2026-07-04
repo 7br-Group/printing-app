@@ -1740,12 +1740,15 @@ class IntegrationWidget(QWidget):
         
         def run_server():
             try:
-                subprocess.run(
-                    [node_path, "server.js"],
-                    cwd=server_dir,
-                    capture_output=True,
-                    creationflags=subprocess.CREATE_NO_WINDOW
-                )
+                log_path = os.path.join(server_dir, "server.log")
+                with open(log_path, "a", encoding="utf-8") as log:
+                    subprocess.run(
+                        [node_path, "server.js"],
+                        cwd=server_dir,
+                        stdout=log,
+                        stderr=log,
+                        creationflags=subprocess.CREATE_NO_WINDOW
+                    )
             except Exception as e:
                 print(f"Server error: {e}")
         
@@ -1770,12 +1773,15 @@ class IntegrationWidget(QWidget):
         
         def run_server():
             try:
-                subprocess.run(
-                    [node_path, "server.js"],
-                    cwd=server_dir,
-                    capture_output=True,
-                    creationflags=subprocess.CREATE_NO_WINDOW
-                )
+                log_path = os.path.join(server_dir, "server.log")
+                with open(log_path, "a", encoding="utf-8") as log:
+                    subprocess.run(
+                        [node_path, "server.js"],
+                        cwd=server_dir,
+                        stdout=log,
+                        stderr=log,
+                        creationflags=subprocess.CREATE_NO_WINDOW
+                    )
             except Exception as e:
                 print(f"Server error: {e}")
         

@@ -332,32 +332,41 @@ async function getAutoReply(message, fromNumber) {
 }
 
 function initClient() {
+    // Find a working browser
+    const possibleBrowsers = [
+        'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe',
+        'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
+        process.env.LOCALAPPDATA + '\\Google\\Chrome\\Application\\chrome.exe',
+        process.env.PROGRAMFILES + '\\Google\\Chrome\\Application\\chrome.exe',
+        (process.env['PROGRAMFILES(X86)'] || 'C:\\Program Files (x86)') + '\\Google\\Chrome\\Application\\chrome.exe',
+    ];
+    let browserPath = null;
+    try {
+        const p = require('puppeteer');
+        const defaultPath = p.executablePath();
+        if (fs.existsSync(defaultPath)) browserPath = defaultPath;
+    } catch {}
+    if (!browserPath) {
+        for (const bp of possibleBrowsers) {
+            try { if (fs.existsSync(bp)) { browserPath = bp; break; } } catch {}
+        }
+    }
+
+    const launchOptions = {
+        headless: true,
+        args: [
+            '--no-sandbox',
+            '--disable-setuid-sandbox',
+            '--disable-dev-shm-usage',
+            '--no-first-run',
+            '--no-zygote',
+        ]
+    };
+    if (browserPath) launchOptions.executablePath = browserPath;
+
     client = new Client({
         authStrategy: new LocalAuth({ dataPath: path.join(__dirname, '.wwebjs_auth') }),
-        puppeteer: {
-            headless: true,
-            args: [
-                '--no-sandbox',
-                '--disable-setuid-sandbox',
-                '--disable-dev-shm-usage',
-                '--no-first-run',
-                '--no-zygote',
-                '--disable-background-networking',
-                '--disable-background-timer-throttling',
-                '--disable-backgrounding-occluded-windows',
-                '--disable-breakpad',
-                '--disable-component-extensions-with-background-pages',
-                '--disable-features=TranslateUI',
-                '--disable-features=IsolateOrigins,site-per-process',
-                '--disable-ipc-flooding-protection',
-                '--disable-renderer-backgrounding',
-                '--enable-features=NetworkService,NetworkServiceInProcess',
-                '--force-color-profile=srgb',
-                '--metrics-recording-only',
-                '--mute-audio'
-            ],
-            userDataDir: path.join(__dirname, '.chromium_cache')
-        }
+        puppeteer: launchOptions
     });
 
     client.on('qr', async (qr) => {
