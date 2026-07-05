@@ -20,11 +20,6 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Set up Node.js 18
-        uses: actions/setup-node@v4
-        with:
-          node-version: 18
-
       - name: Install system dependencies
         run: |
           sudo apt-get update -qq
@@ -35,117 +30,24 @@ jobs:
             libtinfo5 cmake libffi-dev libssl-dev \
             wget curl
 
-      # ── Prepare build directory ──
       - name: Copy project files to mobile_app
         run: |
           cp -r web_app mobile_app/web_app
           cp -r whatsapp_server mobile_app/whatsapp_server
           cp printing_app.db mobile_app/printing_app.db
 
-      # ── Install Python deps ──
       - name: Install Buildozer + Cython
         run: |
-          python --version
           pip install --upgrade pip setuptools wheel
           pip install cython buildozer
           python -m buildozer --help
 
-      # ── Compile WhatsApp server ──
-      - name: Compile WhatsApp server with pkg
-        working-directory: mobile_app/whatsapp_server
-        run: |
-          npm install
-          sudo npm install -g pkg
-          npx pkg server.js --target node18-linux-arm64 --output whatsapp-server 2>&1
-          ls -lh whatsapp-server
-          chmod +x whatsapp-server
-
-      # ── Generate splash & icon ──
-      - name: Generate icons
-        working-directory: mobile_app
-        run: |
-          python -c "
-          import struct, zlib
-          def make_png(w, h, r, g, b):
-              raw = b''
-              for y in range(h):
-                  raw += b'\x00'
-                  for x in range(w):
-                      cy = y / h
-                      raw += struct.pack('BBBB', int(r*(1-cy*0.3)), int(g*(1-cy*0.3)), int(b*(1-cy*0.3)), 255)
-              comp = zlib.compress(raw)
-              sig = b'\x89PNG\r\n\x1a\n'
-              ihdr = struct.pack('>IIBBBBB', w, h, 8, 6, 0, 0, 0)
-              def chunk(t, d):
-                  c = t + d
-                  return struct.pack('>I', len(d)) + c + struct.pack('>I', zlib.crc32(c) & 0xffffffff)
-              return sig + chunk(b'IHDR', ihdr) + chunk(b'IDAT', comp) + chunk(b'IEND', b'')
-          for name, sz in [('splash.png', 512), ('icon.png', 192)]:
-              with open(name, 'wb') as f: f.write(make_png(sz, sz, 59, 130, 246))
-          print('Generated icons')
-          "
-
-      # ── Build APK ──
       - name: Build APK with Buildozer
         shell: bash
         run: |
-          LOG="$GITHUB_WORKSPACE/mobile_app/buildozer-output.log"
           set +e
           cd "$GITHUB_WORKSPACE/mobile_app"
-          echo "=== CWD ===" > "$LOG"
-          pwd >> "$LOG" 2>&1
-          echo "=== ls buildozer.spec ===" >> "$LOG"
-          ls -la buildozer.spec >> "$LOG" 2>&1
-          echo "=== python check ===" >> "$LOG"
-          python -c "
-import os
-print('CWD:', os.getcwd())
-print('spec exists:', os.path.exists('buildozer.spec'))
-print('spec isfile:', os.path.isfile('buildozer.spec'))
-print('dir contents:', os.listdir('.'))
-" >> "$LOG" 2>&1
-          echo "=== Buildozer ===" >> "$LOG"
-          python -m buildozer android debug >> "$LOG" 2>&1
-          echo "EXIT_CODE=$?" >> "$LOG"
-          cat "$LOG"
-        continue-on-error: true
-
-      - name: Surface buildozer error via annotations
-        if: always()
-        shell: bash
-        run: |
-          LOG="$GITHUB_WORKSPACE/mobile_app/buildozer-output.log"
-          if [ -f "$LOG" ]; then
-            echo "::group::Full Buildozer output"
-            cat "$LOG"
-            echo "::endgroup::"
-            head -20 "$LOG" | while IFS= read -r line; do
-              echo "::error file=buildozer.spec,title=Buildozer Output::$(echo "$line" | head -c 200)"
-            done
-          else
-            echo "::error::buildozer-output.log not found"
-            ls -la "$GITHUB_WORKSPACE/mobile_app/"
-          fi
-
-      # ── Upload ──
-      - name: Upload APK
-        if: always()
-        shell: bash
-        run: |
-          cd mobile_app
-          if ls bin/*.apk 1>/dev/null 2>&1; then
-            echo "APK found, uploading..."
-          else
-            echo "::warning::No APK files found in bin/"
-            echo "Contents:"
-            ls -la
-            ls -la bin/ 2>&1 || true
-          fi
-      - name: Upload APK artifact
-        if: success()
-        uses: actions/upload-artifact@v4
-        with:
-          name: printing-app-apk
-          path: mobile_app/bin/*.apk
-          retention-days: 90
-          if-no-files-found: error
+          pwd
+          ls -la buildozer.spec
+          python -m buildozer android debug 2>&1 | tee buildozer-output.log
+          echo "DONE"
