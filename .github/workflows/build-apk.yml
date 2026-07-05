@@ -89,34 +89,42 @@ jobs:
       - name: Build APK with Buildozer
         shell: bash
         run: |
+          LOG="$GITHUB_WORKSPACE/mobile_app/buildozer-output.log"
           set +e
-          APPDIR="$GITHUB_WORKSPACE/mobile_app"
-          echo "APPDIR=$APPDIR"
-          ls -la "$APPDIR/buildozer.spec"
-          cd "$APPDIR"
-          pwd
-          echo "Trying python -m buildozer..."
-          python -c "import os; print('CWD:', os.getcwd()); print('spec exists:', os.path.exists('buildozer.spec'))"
-          python -m buildozer android debug 2>&1 | tee buildozer-output.log; echo "BUILDOZER_EXIT=$?" >> $GITHUB_ENV
+          cd "$GITHUB_WORKSPACE/mobile_app"
+          echo "=== CWD ===" > "$LOG"
+          pwd >> "$LOG" 2>&1
+          echo "=== ls buildozer.spec ===" >> "$LOG"
+          ls -la buildozer.spec >> "$LOG" 2>&1
+          echo "=== python check ===" >> "$LOG"
+          python -c "
+import os
+print('CWD:', os.getcwd())
+print('spec exists:', os.path.exists('buildozer.spec'))
+print('spec isfile:', os.path.isfile('buildozer.spec'))
+print('dir contents:', os.listdir('.'))
+" >> "$LOG" 2>&1
+          echo "=== Buildozer ===" >> "$LOG"
+          python -m buildozer android debug >> "$LOG" 2>&1
+          echo "EXIT_CODE=$?" >> "$LOG"
+          cat "$LOG"
         continue-on-error: true
 
       - name: Surface buildozer error via annotations
         if: always()
         shell: bash
         run: |
-          set +e
-          APPDIR="$GITHUB_WORKSPACE/mobile_app"
-          cd "$APPDIR"
-          if [ -f buildozer-output.log ]; then
-            echo "::group::Buildozer output"
-            cat buildozer-output.log
+          LOG="$GITHUB_WORKSPACE/mobile_app/buildozer-output.log"
+          if [ -f "$LOG" ]; then
+            echo "::group::Full Buildozer output"
+            cat "$LOG"
             echo "::endgroup::"
-            head -5 buildozer-output.log | while IFS= read -r line; do
+            head -20 "$LOG" | while IFS= read -r line; do
               echo "::error file=buildozer.spec,title=Buildozer Output::$(echo "$line" | head -c 200)"
             done
           else
-            echo "::error::buildozer-output.log not found in $(pwd)"
-            ls -la
+            echo "::error::buildozer-output.log not found"
+            ls -la "$GITHUB_WORKSPACE/mobile_app/"
           fi
 
       # ── Upload ──
