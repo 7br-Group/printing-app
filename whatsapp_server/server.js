@@ -9,77 +9,33 @@ app.use(express.json());
 
 let client = null;
 let connected = false;
+let connecting = false;
 let phone = '';
 let currentQr = '';
 let lastQr = '';
 let autoReplies = {};
 let welcomeMessage = '';
+let reconnectAttempts = 0;
+const MAX_RECONNECT_DELAY = 60000;
 
-// Conversation memory: { phoneNumber: { productId, productName, step, lastMessage, quantity, paymentMethod } }
 const conversations = {};
-
-// Order flow states
-const ORDER_STEPS = {
-    NONE: 'none',
-    AWAITING_QUANTITY: 'awaiting_quantity',
-    AWAITING_PAYMENT: 'awaiting_payment',
-    CONFIRMED: 'confirmed'
-};
-
-// Customer product interest tracking
-const customerInterests = {}; // { phoneNumber: { productId, productName, count } }
+const ORDER_STEPS = { NONE: 'none', AWAITING_QUANTITY: 'awaiting_quantity', AWAITING_PAYMENT: 'awaiting_payment', CONFIRMED: 'confirmed' };
+const customerInterests = {};
 
 const DB_PATH = path.join(__dirname, '..', 'printing_app.db');
+process.env.DATABASE_PATH = DB_PATH;
 
 function getDb() {
-    try {
-        const sqlite3 = require('sqlite3');
-        return new sqlite3.Database(DB_PATH);
-    } catch {
-        return null;
-    }
-}
-
-function getProducts() {
-    const db = getDb();
-    if (!db) return [];
-    try {
-        const rows = [];
-        db.each('SELECT id, name, description, price, quantity FROM products WHERE is_active = 1', (err, row) => {
-            if (!err) rows.push(row);
-        });
-        db.close();
-        return rows;
-    } catch {
-        db.close();
-        return [];
-    }
-}
-
-function getProductsSync() {
-    const db = getDb();
-    if (!db) return [];
-    try {
-        const { Database } = require('sqlite3');
-        const sql = 'SELECT id, name, description, price, quantity FROM products WHERE is_active = 1';
-        return new Promise((resolve, reject) => {
-            db.all(sql, (err, rows) => {
-                db.close();
-                if (err) resolve([]);
-                else resolve(rows || []);
-            });
-        });
-    } catch { return []; }
+    try { return new (require('sqlite3')).Database(DB_PATH); }
+    catch { return null; }
 }
 
 let productsCache = [];
-let productsLastRefresh = 0;
-
 async function refreshProducts() {
     try {
         const db = getDb();
         if (!db) return;
-        await new Promise((resolve) => {
+        await new Promise(resolve => {
             db.all('SELECT id, name, description, price, quantity, image_path FROM products WHERE is_active = 1', (err, rows) => {
                 if (!err) productsCache = rows || [];
                 db.close();
@@ -90,6 +46,22 @@ async function refreshProducts() {
 }
 refreshProducts();
 setInterval(refreshProducts, 30000);
+
+// Clean old conversations every 5 minutes
+setInterval(() => {
+    const cutoff = Date.now() - 86400000;
+    for (const num of Object.keys(conversations)) {
+        if ((conversations[num].timestamp || 0) < cutoff) delete conversations[num];
+    }
+    for (const num of Object.keys(customerInterests)) {
+        let hasRecent = false;
+        for (const key of Object.keys(customerInterests[num] || {})) {
+            if (customerInterests[num][key].count <= 0) delete customerInterests[num][key];
+            else hasRecent = true;
+        }
+        if (!hasRecent) delete customerInterests[num];
+    }
+}, 300000);
 
 // ===== Egyptian Arabic Synonym Map =====
 const EGYPTIAN_SYNONYMS = {
@@ -125,481 +97,247 @@ const PAYMENT_KEYWORDS = {
 };
 
 function normalizeArabic(text) {
-    return text
-        .replace(/[إأٱآا]/g, 'ا')
-        .replace(/[ى]/g, 'ي')
-        .replace(/[ؤ]/g, 'و')
-        .replace(/[ة]/g, 'ه')
-        .replace(/[ئ]/g, 'ي')
-        .toLowerCase();
+    return text.replace(/[إأٱآا]/g, 'ا').replace(/[ى]/g, 'ي').replace(/[ؤ]/g, 'و').replace(/[ة]/g, 'ه').replace(/[ئ]/g, 'ي').toLowerCase();
 }
 
 function extractNumber(text) {
     const arabicNums = { '٠': '0', '١': '1', '٢': '2', '٣': '3', '٤': '4', '٥': '5', '٦': '6', '٧': '7', '٨': '8', '٩': '9' };
-    let normalized = text;
-    for (const [ar, en] of Object.entries(arabicNums)) {
-        normalized = normalized.replace(new RegExp(ar, 'g'), en);
-    }
-    const matches = normalized.match(/\d+/g);
-    return matches ? parseInt(matches[0]) : null;
+    let n = text;
+    for (const [ar, en] of Object.entries(arabicNums)) n = n.replace(new RegExp(ar, 'g'), en);
+    const m = n.match(/\d+/g);
+    return m ? parseInt(m[0]) : null;
 }
 
 function matchProduct(message, products) {
-    if (!products || products.length === 0) return null;
+    if (!products || !products.length) return null;
     const normalized = normalizeArabic(message);
-
-    // Try to extract a number from the message
     const requestedNumber = extractNumber(message);
-
-    let bestMatch = null;
-    let bestScore = 0;
-
+    let bestMatch = null, bestScore = 0;
     for (const product of products) {
         const prodName = normalizeArabic(product.name);
         let score = 0;
-
-        // Check if product name appears in message
-        const nameWords = prodName.split(/\s+/);
-        for (const word of nameWords) {
-            if (word.length > 1 && normalized.includes(word)) {
-                score += 10;
+        for (const word of prodName.split(/\s+/)) {
+            if (word.length > 1 && normalized.includes(word)) score += 10;
+        }
+        for (const [, synonyms] of Object.entries(EGYPTIAN_SYNONYMS)) {
+            for (const syn of synonyms) {
+                const synNorm = normalizeArabic(syn);
+                if (normalized.includes(synNorm)) { score += 5; if (prodName.includes(synNorm)) score += 15; break; }
             }
         }
-
-        // Check synonyms
-        for (const [category, synonyms] of Object.entries(EGYPTIAN_SYNONYMS)) {
-            const catNorm = normalizeArabic(category);
-            if (normalized.includes(catNorm)) {
-                score += 5;
-                // Check if any synonym of this category is in the product name
-                for (const syn of synonyms) {
-                    const synNorm = normalizeArabic(syn);
-                    if (prodName.includes(synNorm)) {
-                        score += 15;
-                        break;
-                    }
-                }
-            } else {
-                for (const syn of synonyms) {
-                    const synNorm = normalizeArabic(syn);
-                    if (normalized.includes(synNorm)) {
-                        score += 5;
-                        if (prodName.includes(synNorm)) {
-                            score += 15;
-                            break;
-                        }
-                    }
-                }
-            }
-        }
-
-        // If there's a number and the product name contains that number, boost score
-        if (requestedNumber !== null && prodName.includes(requestedNumber.toString())) {
-            score += 50;
-        }
-
-        if (score > bestScore) {
-            bestScore = score;
-            bestMatch = product;
-        }
+        if (requestedNumber !== null && prodName.includes(requestedNumber.toString())) score += 50;
+        if (score > bestScore) { bestScore = score; bestMatch = product; }
     }
-
-    // Minimum threshold to avoid false positives
     return bestScore >= 10 ? bestMatch : null;
 }
 
-function hasBuyingIntent(message) {
-    const normalized = normalizeArabic(message);
-    for (const kw of BUYING_KEYWORDS) {
-        if (normalized.includes(normalizeArabic(kw))) return true;
-    }
-    return false;
-}
+function hasBuyingIntent(msg) { const n = normalizeArabic(msg); return BUYING_KEYWORDS.some(k => n.includes(normalizeArabic(k))); }
+function isGreeting(msg) { const n = normalizeArabic(msg); return GREETING_KEYWORDS.some(k => n.includes(normalizeArabic(k))); }
+function isListProductsRequest(msg) { const n = normalizeArabic(msg); return LIST_KEYWORDS.some(k => n.includes(normalizeArabic(k))); }
 
-function isInquiry(message) {
-    const normalized = normalizeArabic(message);
-    for (const kw of INQUIRY_KEYWORDS) {
-        if (normalized.includes(normalizeArabic(kw))) return true;
-    }
-    return false;
-}
-
-function isGreeting(message) {
-    const normalized = normalizeArabic(message);
-    for (const kw of GREETING_KEYWORDS) {
-        if (normalized.includes(normalizeArabic(kw))) return true;
-    }
-    return false;
-}
-
-function matchKeyword(message) {
-    const normalized = normalizeArabic(message);
-    for (const [keyword, reply] of Object.entries(autoReplies)) {
-        const normKeyword = normalizeArabic(keyword);
-        if (normalized.includes(normKeyword)) {
-            return reply;
-        }
-        // Also check synonyms
-        for (const [category, synonyms] of Object.entries(EGYPTIAN_SYNONYMS)) {
-            if (normKeyword.includes(normalizeArabic(category))) {
-                for (const syn of synonyms) {
-                    if (normalized.includes(normalizeArabic(syn))) {
-                        return reply;
-                    }
-                }
-            }
-        }
-    }
-    return null;
-}
-
-function formatProductReply(product, prefix = '') {
-    const price = product.price ? `${product.price} ج.م` : 'غير محدد';
-    const available = product.quantity > 0 ? 'متوفر' : 'غير متوفر حالياً';
-    return `${prefix}*${product.name}*\n💰 السعر: ${price}\n📦 الحالة: ${available}`;
-}
-
-function formatProductList(products) {
-    if (!products || products.length === 0) return 'لا توجد منتجات متاحة حالياً';
-    let reply = '*قائمة المنتجات المتاحة:*\n\n';
-    products.forEach((p, i) => {
-        reply += `${i+1}. *${p.name}* — ${p.price} ج.م\n`;
-    });
-    reply += '\nأرسل اسم المنتج لمعرفة سعره\nأو أرسل "عايز (اسم المنتج)" للشراء';
-    return reply;
-}
-
-function isListProductsRequest(message) {
-    const norm = normalizeArabic(message);
-    for (const kw of LIST_KEYWORDS) {
-        if (norm.includes(normalizeArabic(kw))) return true;
-    }
-    return false;
-}
-
-function detectPaymentMethod(message) {
-    const norm = normalizeArabic(message);
+function detectPaymentMethod(msg) {
+    const n = normalizeArabic(msg);
     for (const [method, keywords] of Object.entries(PAYMENT_KEYWORDS)) {
-        for (const kw of keywords) {
-            if (norm.includes(kw)) return method;
-        }
+        if (keywords.some(k => n.includes(k))) return method;
     }
     return null;
 }
 
 function getProductImagePath(product) {
     if (!product || !product.image_path) return null;
-    const imgPath = product.image_path;
-    if (fs.existsSync(imgPath)) return imgPath;
-    // Try relative to DB_PATH
-    const relPath = path.join(path.dirname(DB_PATH), imgPath);
-    if (fs.existsSync(relPath)) return relPath;
-    return null;
+    if (fs.existsSync(product.image_path)) return product.image_path;
+    const rel = path.join(path.dirname(DB_PATH), product.image_path);
+    return fs.existsSync(rel) ? rel : null;
+}
+
+function formatProductReply(product, prefix = '') {
+    return `${prefix}*${product.name}*\n💰 السعر: ${product.price} ج.م\n📦 الحالة: ${product.quantity > 0 ? 'متوفر' : 'غير متوفر حالياً'}`;
+}
+
+function formatProductList(products) {
+    if (!products || !products.length) return 'لا توجد منتجات متاحة حالياً';
+    return '*قائمة المنتجات المتاحة:*\n\n' + products.map((p, i) => `${i + 1}. *${p.name}* — ${p.price} ج.م`).join('\n') + '\n\nأرسل اسم المنتج لمعرفة سعره\nأو أرسل "عايز (اسم المنتج)" للشراء';
 }
 
 async function getAutoReply(message, fromNumber) {
     const normalized = normalizeArabic(message);
-
-    // Check for existing conversation (order flow)
     const conv = conversations[fromNumber];
 
-    // === ORDER FLOW: Awaiting quantity ===
     if (conv && conv.step === ORDER_STEPS.AWAITING_QUANTITY) {
         const qty = extractNumber(message);
-        if (qty && qty > 0) {
-            conv.quantity = qty;
-            conv.step = ORDER_STEPS.AWAITING_PAYMENT;
-            return `حضرتك عايز ${qty} قطعة من *${conv.productName}*\n\nإزاي تحب تدفع؟\n1️⃣ كاش\n2️⃣ بطاقة ائتمان\n3️⃣ فودافون كاش\n4️⃣ انستاباي`;
-        }
-        if (normalized.includes('لا') || normalized.includes('مش') || normalized.includes('الف')) {
-            conv.step = ORDER_STEPS.NONE;
-            return 'تمام، لو احتجت أي حاجة تاني أنا موجود 🤝';
-        }
-        return `من فضلك اكتب العدد المطلوب (مثلاً: 5)\nأو أرسل "لا" للإلغاء`;
+        if (qty && qty > 0) { conv.quantity = qty; conv.step = ORDER_STEPS.AWAITING_PAYMENT; return `حضرتك عايز ${qty} قطعة من *${conv.productName}*\n\nإزاي تحب تدفع؟\n1️⃣ كاش\n2️⃣ بطاقة ائتمان\n3️⃣ فودافون كاش\n4️⃣ انستاباي`; }
+        if (normalized.includes('لا') || normalized.includes('مش') || normalized.includes('الف')) { conv.step = ORDER_STEPS.NONE; return 'تمام، لو احتجت أي حاجة تاني أنا موجود 🤝'; }
+        return 'من فضلك اكتب العدد المطلوب (مثلاً: 5)\nأو أرسل "لا" للإلغاء';
     }
 
-    // === ORDER FLOW: Awaiting payment ===
     if (conv && conv.step === ORDER_STEPS.AWAITING_PAYMENT) {
         const method = detectPaymentMethod(message);
         if (method) {
-            conv.paymentMethod = method;
-            conv.step = ORDER_STEPS.CONFIRMED;
-
-            // Save as high-priority inquiry
+            conv.paymentMethod = method; conv.step = ORDER_STEPS.CONFIRMED;
             const db = getDb();
             if (db) {
-                const inquiryMsg = `🛒 *طلب جديد*\nالمنتج: ${conv.productName}\nالكمية: ${conv.quantity}\nطريقة الدفع: ${method}\تيلفون: ${fromNumber}`;
-                db.run(
-                    `INSERT INTO inquiries (customer_id, source, message, product_id, status, priority)
-                     VALUES (NULL, 'whatsapp', ?, ?, 'pending', 'high')`,
-                    [inquiryMsg, conv.productId]
-                );
-                db.close();
+                const inquiryMsg = `🛒 *طلب جديد*\nالمنتج: ${conv.productName}\nالكمية: ${conv.quantity}\nطريقة الدفع: ${method}\nتيلفون: ${fromNumber}`;
+                db.run(`INSERT INTO inquiries (customer_id, source, message, product_id, status, priority) VALUES (NULL, 'whatsapp', ?, ?, 'pending', 'high')`, [inquiryMsg, conv.productId], () => db.close());
             }
-
             return `✅ *تم تسجيل طلبك!*\n\nالمنتج: *${conv.productName}*\nالكمية: ${conv.quantity}\nطريقة الدفع: ${method}\n\nسنقوم بالتواصل معك قريباً لتأكيد الطلب وشحن المنتج.\nشكراً لتسوقك معنا! 🙏`;
         }
-        return `طريقة الدفع غير معروفة. اختر:\n1️⃣ كاش\n2️⃣ بطاقة ائتمان\n3️⃣ فودافون كاش\n4️⃣ انستاباي`;
+        return 'طريقة الدفع غير معروفة. اختر:\n1️⃣ كاش\n2️⃣ بطاقة ائتمان\n3️⃣ فودافون كاش\n4️⃣ انستاباي';
     }
 
-    // === Greeting ===
-    if (isGreeting(message) && welcomeMessage) {
-        return welcomeMessage;
-    }
+    if (isGreeting(message) && welcomeMessage) return welcomeMessage;
 
-    // === Refresh products ===
-    await refreshProducts();
+    if (isListProductsRequest(message)) return formatProductList(productsCache);
 
-    // === Check if asking for product list ===
-    if (isListProductsRequest(message)) {
-        return formatProductList(productsCache);
-    }
-
-    // === Try to match a product ===
     const matchedProduct = matchProduct(message, productsCache);
-
     if (matchedProduct) {
-        // Track this customer's interest
-        if (!customerInterests[fromNumber]) {
-            customerInterests[fromNumber] = {};
-        }
-        const interestKey = matchedProduct.id;
-        if (!customerInterests[fromNumber][interestKey]) {
-            customerInterests[fromNumber][interestKey] = { productId: matchedProduct.id, productName: matchedProduct.name, count: 0 };
-        }
-        customerInterests[fromNumber][interestKey].count++;
+        if (!customerInterests[fromNumber]) customerInterests[fromNumber] = {};
+        const key = matchedProduct.id;
+        if (!customerInterests[fromNumber][key]) customerInterests[fromNumber][key] = { productId: key, productName: matchedProduct.name, count: 0 };
+        customerInterests[fromNumber][key].count++;
 
-        // Set conversation memory with product
-        conversations[fromNumber] = {
-            productId: matchedProduct.id,
-            productName: matchedProduct.name,
-            step: ORDER_STEPS.NONE,
-            lastMessage: message,
-            timestamp: Date.now()
-        };
+        conversations[fromNumber] = { productId: key, productName: matchedProduct.name, step: ORDER_STEPS.NONE, lastMessage: message, timestamp: Date.now() };
 
-        // Buying intent
         if (hasBuyingIntent(message)) {
-            // Start order flow: ask for quantity
             conversations[fromNumber].step = ORDER_STEPS.AWAITING_QUANTITY;
-            let reply = formatProductReply(matchedProduct, '');
-            if (matchedProduct.description) {
-                reply += `\n📝 ${matchedProduct.description}`;
-            }
-            reply += `\n\nكم قطعة عايز من *${matchedProduct.name}*؟`;
-            return reply;
+            let r = formatProductReply(matchedProduct);
+            if (matchedProduct.description) r += `\n📝 ${matchedProduct.description}`;
+            return r + `\n\nكم قطعة عايز من *${matchedProduct.name}*؟`;
         }
 
-        // Price inquiry / info request
-        let reply = formatProductReply(matchedProduct, '');
-        if (matchedProduct.description) {
-            reply += `\n📝 ${matchedProduct.description}`;
-        }
-        reply += `\n\nعايز تشتري؟ أرسل "عايز ${matchedProduct.name}"`;
+        let r = formatProductReply(matchedProduct);
+        if (matchedProduct.description) r += `\n📝 ${matchedProduct.description}`;
+        r += `\n\nعايز تشتري؟ أرسل "عايز ${matchedProduct.name}"`;
 
-        // Create inquiry in DB
         const db = getDb();
-        if (db) {
-            db.run(
-                `INSERT INTO inquiries (customer_id, source, message, product_id, status, priority)
-                 VALUES (NULL, 'whatsapp', ?, ?, 'pending', 'medium')`,
-                [`استفسار عن ${matchedProduct.name}: ${message}`, matchedProduct.id]
-            );
-            db.close();
-        }
-        return reply;
+        if (db) db.run(`INSERT INTO inquiries (customer_id, source, message, product_id, status, priority) VALUES (NULL, 'whatsapp', ?, ?, 'pending', 'medium')`, [`استفسار عن ${matchedProduct.name}: ${message}`, matchedProduct.id], () => db.close());
+        return r;
     }
 
-    // === Check for order confirmation keywords ===
     if (conv && conv.productId && (normalized.includes('تأكيد') || normalized.includes('أكيد') || normalized.includes('اكيد') || normalized.includes('تم'))) {
-        if (conv.step === ORDER_STEPS.CONFIRMED) {
-            return 'طلبك مسجل بالفعل! سنتواصل معك قريباً ✅';
-        }
-        if (conv.step === ORDER_STEPS.NONE) {
-            conversations[fromNumber].step = ORDER_STEPS.AWAITING_QUANTITY;
-            let reply = `كم قطعة عايز من *${conv.productName}*؟`;
-            return reply;
-        }
+        if (conv.step === ORDER_STEPS.CONFIRMED) return 'طلبك مسجل بالفعل! سنتواصل معك قريباً ✅';
+        if (conv.step === ORDER_STEPS.NONE) { conversations[fromNumber].step = ORDER_STEPS.AWAITING_QUANTITY; return `كم قطعة عايز من *${conv.productName}*؟`; }
     }
 
-    // === Try keyword-based auto-reply ===
-    const keywordReply = matchKeyword(message);
-    if (keywordReply) {
-        return keywordReply;
-    }
+    if (conv && conv.productId && conv.step !== ORDER_STEPS.CONFIRMED) return `هل تزال مهتماً بـ *${conv.productName}*؟\nأرسل "سعر ${conv.productName}" أو "عايز ${conv.productName}"`;
 
-    // === Generic inquiry - save to DB ===
     const db = getDb();
-    if (db) {
-        db.run(
-            `INSERT INTO inquiries (customer_id, source, message, status, priority)
-             VALUES (NULL, 'whatsapp', ?, 'pending', 'low')`,
-            [message]
-        );
-        db.close();
-    }
-
-    // === Follow-up from conversation memory ===
-    if (conv && conv.productId && conv.step !== ORDER_STEPS.CONFIRMED) {
-        return `هل تزال مهتماً بـ *${conv.productName}*؟\nأرسل "سعر ${conv.productName}" أو "عايز ${conv.productName}"`;
-    }
-
-    // === Default reply ===
+    if (db) db.run(`INSERT INTO inquiries (customer_id, source, message, status, priority) VALUES (NULL, 'whatsapp', ?, 'pending', 'low')`, [message], () => db.close());
     return null;
 }
 
 function initClient() {
-    // Find a working browser (Windows + Linux/Termux)
-    const isLinux = process.platform === 'linux';
-    const possibleBrowsers = [
-        'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe',
+    if (client) { try { client.destroy(); } catch {} client = null; }
+    connecting = true;
+    connected = false;
+
+    const browsers = [
+        process.env.PUPPETEER_EXECUTABLE_PATH,
+        require('puppeteer').executablePath(),
         'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
         process.env.LOCALAPPDATA + '\\Google\\Chrome\\Application\\chrome.exe',
         process.env.PROGRAMFILES + '\\Google\\Chrome\\Application\\chrome.exe',
         (process.env['PROGRAMFILES(X86)'] || 'C:\\Program Files (x86)') + '\\Google\\Chrome\\Application\\chrome.exe',
-        // Linux / Termux paths
         '/data/data/com.termux/files/usr/bin/chromium',
         '/data/data/com.termux/files/usr/bin/chromium-browser',
-        '/usr/bin/chromium',
-        '/usr/bin/chromium-browser',
-        '/usr/bin/google-chrome',
-        '/snap/bin/chromium',
-    ];
-    let browserPath = null;
-    try {
-        const p = require('puppeteer');
-        const defaultPath = p.executablePath();
-        if (fs.existsSync(defaultPath)) browserPath = defaultPath;
-    } catch {}
-    if (!browserPath) {
-        for (const bp of possibleBrowsers) {
-            try { if (fs.existsSync(bp)) { browserPath = bp; break; } } catch {}
-        }
-    }
+        '/usr/bin/chromium', '/usr/bin/chromium-browser', '/usr/bin/google-chrome', '/snap/bin/chromium',
+    ].filter(Boolean);
 
-    const launchOptions = {
+    let browserPath = null;
+    for (const bp of browsers) { try { if (fs.existsSync(bp)) { browserPath = bp; break; } } catch {} }
+
+    const opts = {
         headless: true,
-        args: [
-            '--no-sandbox',
-            '--disable-setuid-sandbox',
-            '--disable-dev-shm-usage',
-            '--no-first-run',
-            '--no-zygote',
-            '--disable-gpu',
-            '--window-size=800,600',
-        ]
+        args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--no-first-run', '--no-zygote', '--disable-gpu', '--window-size=800,600'],
     };
-    if (browserPath) launchOptions.executablePath = browserPath;
+    if (browserPath) opts.executablePath = browserPath;
 
     client = new Client({
         authStrategy: new LocalAuth({ dataPath: path.join(__dirname, '.wwebjs_auth') }),
-        puppeteer: launchOptions
+        puppeteer: opts,
     });
 
-    client.on('qr', async (qr) => {
+    client.on('qr', async qr => {
         currentQr = qr;
-        try {
-            lastQr = await qrcode.toDataURL(qr);
-        } catch (e) {
-            console.error('QR error:', e);
-        }
+        try { lastQr = await qrcode.toDataURL(qr); } catch {}
         connected = false;
-        console.log('QR Code received, scan it with WhatsApp!');
-    });
-
-    client.on('ready', () => {
-        connected = true;
-        phone = client.info.wid.user || '';
-        currentQr = '';
-        refreshProducts();
-        console.log(`WhatsApp connected: ${phone}`);
+        reconnectAttempts = 0;
+        console.log('QR Code received, scan with WhatsApp!');
     });
 
     client.on('authenticated', () => {
         console.log('WhatsApp authenticated!');
+        reconnectAttempts = 0;
     });
 
-    client.on('auth_failure', (msg) => {
+    client.on('ready', () => {
+        connected = true; connecting = false;
+        phone = (client.info && client.info.wid && client.info.wid.user) || '';
+        currentQr = '';
+        refreshProducts();
+        reconnectAttempts = 0;
+        console.log('WhatsApp connected: ' + phone);
+    });
+
+    client.on('auth_failure', msg => {
         console.error('Auth failure:', msg);
-        connected = false;
+        connected = false; connecting = false; phone = '';
+        scheduleReconnect();
     });
 
-    client.on('disconnected', (reason) => {
-        connected = false;
-        phone = '';
+    client.on('disconnected', reason => {
         console.log('WhatsApp disconnected:', reason);
+        connected = false; connecting = false; phone = ''; currentQr = '';
+        scheduleReconnect();
     });
 
-    client.on('message', async (msg) => {
-        if (msg.from === 'status@broadcast') return;
-        if (msg.isGroup) return;
+    client.on('message', async msg => {
+        if (msg.from === 'status@broadcast' || msg.isGroup) return;
+        try {
+            const contact = await msg.getContact();
+            const name = contact.pushname || contact.name || msg.from;
+            const number = msg.from.replace('@c.us', '');
 
-        const contact = await msg.getContact();
-        const name = contact.pushname || contact.name || msg.from;
-        const number = msg.from.replace('@c.us', '');
-
-        // Save customer to DB
-        const db = getDb();
-        if (db) {
-            db.get('SELECT id FROM customers WHERE whatsapp = ?', [number], (err, row) => {
-                if (err) { db.close(); return; }
-                if (!row) {
-                    db.run(
-                        `INSERT INTO customers (name, whatsapp, phone) VALUES (?, ?, ?)`,
-                        [name || number, number, number],
-                        function(err) {
-                            if (err) console.error('Customer insert error:', err);
-                            db.close();
-                        }
-                    );
-                } else {
-                    db.close();
-                }
-            });
-        }
-
-        // Store conversation memory
-        conversations[number] = { lastMessage: msg.body, timestamp: Date.now() };
-
-        // Get smart reply
-        const result = await getAutoReply(msg.body, number);
-        if (result) {
-            setTimeout(() => {
-                client.sendMessage(msg.from, result);
-            }, 1500);
-        }
-
-        // Send product image if one was matched
-        const matchedProduct = matchProduct(msg.body, productsCache);
-        if (matchedProduct) {
-            const imgPath = getProductImagePath(matchedProduct);
-            if (imgPath) {
-                setTimeout(() => {
-                    try {
-                        const media = MessageMedia.fromFilePath(imgPath);
-                        client.sendMessage(msg.from, media);
-                    } catch (e) {
-                        console.error('Image send error:', e.message);
-                    }
-                }, 2500);
+            const db = getDb();
+            if (db) {
+                db.get('SELECT id FROM customers WHERE whatsapp = ?', [number], (err, row) => {
+                    if (err) { db.close(); return; }
+                    if (!row) db.run('INSERT INTO customers (name, whatsapp, phone) VALUES (?, ?, ?)', [name || number, number, number], () => db.close());
+                    else db.close();
+                });
             }
-        }
+
+            conversations[number] = { lastMessage: msg.body, timestamp: Date.now() };
+            const result = await getAutoReply(msg.body, number);
+            if (result) setTimeout(() => { try { client.sendMessage(msg.from, result); } catch {} }, 1500);
+
+            const matched = matchProduct(msg.body, productsCache);
+            if (matched) {
+                const imgPath = getProductImagePath(matched);
+                if (imgPath) setTimeout(() => { try { client.sendMessage(msg.from, MessageMedia.fromFilePath(imgPath)); } catch {} }, 2500);
+            }
+        } catch (e) { console.error('Message handler error:', e.message); }
     });
 
     client.initialize().catch(err => {
         console.error('Client init error:', err);
-        setTimeout(initClient, 5000);
+        connected = false; connecting = false;
+        scheduleReconnect();
     });
 }
 
+function scheduleReconnect() {
+    const delay = Math.min(5000 * Math.pow(2, reconnectAttempts), MAX_RECONNECT_DELAY);
+    reconnectAttempts++;
+    console.log(`Reconnecting in ${Math.round(delay / 1000)}s (attempt ${reconnectAttempts})`);
+    setTimeout(() => {
+        if (!connected) initClient();
+    }, delay);
+}
+
+app.get('/api/ping', (req, res) => res.json({ ok: true }));
+
 app.get('/api/status', (req, res) => {
-    res.json({
-        connected: connected,
-        qr: currentQr ? true : false,
-        phone: phone,
-        qrDataUrl: lastQr || null,
-        products: productsCache.length
-    });
+    res.json({ connected, connecting, qr: !!currentQr, phone, qrDataUrl: lastQr || null, products: productsCache.length });
 });
 
 app.post('/api/replies', (req, res) => {
@@ -611,46 +349,26 @@ app.post('/api/replies', (req, res) => {
 });
 
 app.post('/api/send', (req, res) => {
-    const { to, message } = req.body;
-    if (!client || !connected) {
-        return res.json({ success: false, error: 'Not connected' });
-    }
-    const chatId = to.includes('@c.us') ? to : `${to}@c.us`;
-    client.sendMessage(chatId, message).then(() => {
-        res.json({ success: true });
-    }).catch(err => {
-        res.json({ success: false, error: err.message });
-    });
+    if (!client || !connected) return res.json({ success: false, error: 'Not connected' });
+    const chatId = req.body.to.includes('@c.us') ? req.body.to : `${req.body.to}@c.us`;
+    client.sendMessage(chatId, req.body.message).then(() => res.json({ success: true })).catch(e => res.json({ success: false, error: e.message }));
 });
 
-app.get('/api/qr', (req, res) => {
-    if (lastQr) {
-        res.json({ qr: lastQr });
-    } else {
-        res.json({ qr: null, message: 'No QR yet' });
-    }
-});
+app.get('/api/qr', (req, res) => res.json({ qr: lastQr || null }));
 
-app.get('/api/products', async (req, res) => {
-    await refreshProducts();
-    res.json(productsCache);
-});
+app.get('/api/products', async (req, res) => { await refreshProducts(); res.json(productsCache); });
 
 app.get('/api/conversations', (req, res) => {
     const active = {};
     for (const [num, data] of Object.entries(conversations)) {
-        if (Date.now() - data.timestamp < 86400000) {
-            active[num] = data;
-        }
+        if (Date.now() - (data.timestamp || 0) < 86400000) active[num] = data;
     }
     res.json(active);
 });
 
-app.get('/api/interests', (req, res) => {
-    res.json(customerInterests);
-});
+app.get('/api/interests', (req, res) => res.json(customerInterests));
 
-const PORT = 3000;
+const PORT = parseInt(process.env.PORT || '3000');
 app.listen(PORT, () => {
     console.log(`WhatsApp server running on http://localhost:${PORT}`);
     refreshProducts().then(() => {
