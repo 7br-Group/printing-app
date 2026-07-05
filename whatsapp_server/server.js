@@ -449,13 +449,21 @@ async function getAutoReply(message, fromNumber) {
 }
 
 function initClient() {
-    // Find a working browser
+    // Find a working browser (Windows + Linux/Termux)
+    const isLinux = process.platform === 'linux';
     const possibleBrowsers = [
         'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe',
         'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
         process.env.LOCALAPPDATA + '\\Google\\Chrome\\Application\\chrome.exe',
         process.env.PROGRAMFILES + '\\Google\\Chrome\\Application\\chrome.exe',
         (process.env['PROGRAMFILES(X86)'] || 'C:\\Program Files (x86)') + '\\Google\\Chrome\\Application\\chrome.exe',
+        // Linux / Termux paths
+        '/data/data/com.termux/files/usr/bin/chromium',
+        '/data/data/com.termux/files/usr/bin/chromium-browser',
+        '/usr/bin/chromium',
+        '/usr/bin/chromium-browser',
+        '/usr/bin/google-chrome',
+        '/snap/bin/chromium',
     ];
     let browserPath = null;
     try {
@@ -477,6 +485,8 @@ function initClient() {
             '--disable-dev-shm-usage',
             '--no-first-run',
             '--no-zygote',
+            '--disable-gpu',
+            '--window-size=800,600',
         ]
     };
     if (browserPath) launchOptions.executablePath = browserPath;

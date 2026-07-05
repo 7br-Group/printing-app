@@ -1,22 +1,61 @@
 {
   "name": "نظام إدارة المطبعة",
   "short_name": "المطبعة",
-  "description": "نظام إدارة المطبعة مع واتساب",
-  "start_url": "/",
+  "description": "نظام إدارة المطبعة مع واتساب - طلب منتجات، متابعة مخزون، مبيعات",
+  "start_url": "/?source=pwa",
   "display": "standalone",
-  "background_color": "#1e293b",
-  "theme_color": "#1e293b",
-  "orientation": "any",
+  "background_color": "#0f172a",
+  "theme_color": "#0f172a",
+  "orientation": "portrait",
+  "scope": "/",
+  "id": "/",
+  "categories": ["business", "productivity"],
+  "prefer_related_applications": false,
+  "lang": "ar",
+  "dir": "rtl",
   "icons": [
     {
       "src": "/static/icon-192.png",
       "sizes": "192x192",
-      "type": "image/png"
+      "type": "image/png",
+      "purpose": "any maskable"
     },
     {
       "src": "/static/icon-512.png",
       "sizes": "512x512",
-      "type": "image/png"
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ],
+  "screenshots": [],
+  "shortcuts": [
+    {
+      "name": "لوحة التحكم",
+      "short_name": "الرئيسية",
+      "description": "عرض لوحة التحكم والإحصائيات",
+      "url": "/",
+      "icons": [{ "src": "/static/icon-192.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "المنتجات",
+      "short_name": "منتجات",
+      "description": "إدارة المنتجات والأسعار",
+      "url": "/products",
+      "icons": [{ "src": "/static/icon-192.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "المبيعات",
+      "short_name": "مبيعات",
+      "description": "تسجيل فاتورة جديدة",
+      "url": "/sales",
+      "icons": [{ "src": "/static/icon-192.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "الاستفسارات",
+      "short_name": "استفسارات",
+      "description": "الاستفسارات الواردة من العملاء",
+      "url": "/inquiries",
+      "icons": [{ "src": "/static/icon-192.png", "sizes": "192x192" }]
     }
   ]
 }

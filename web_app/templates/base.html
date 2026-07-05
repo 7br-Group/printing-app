@@ -2,62 +2,74 @@
 <html lang="ar" dir="rtl">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>نظام إدارة المطبعة</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="المطبعة">
+    <meta name="theme-color" content="#0f172a">
+    <meta name="application-name" content="نظام المطبعة">
+    <title>{% block title %}نظام إدارة المطبعة{% endblock %}</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.rtl.min.css" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet">
     <link href="{{ url_for('static', filename='style.css') }}" rel="stylesheet">
     <link rel="manifest" href="{{ url_for('static', filename='manifest.json') }}">
-    <meta name="apple-mobile-web-app-capable" content="yes">
+    <link rel="apple-touch-icon" href="{{ url_for('static', filename='icon-192.png') }}">
+    <link rel="icon" href="{{ url_for('static', filename='icon-192.png') }}">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-    <meta name="theme-color" content="#1e293b">
 </head>
-<body>
+<body class="{% if not session.logged_in %}login-page{% endif %}">
+    <!-- Overlay for mobile sidebar -->
+    <div class="sidebar-overlay" id="sidebarOverlay" onclick="toggleSidebar()"></div>
+
     <div class="d-flex" id="wrapper">
         {% if session.logged_in %}
         <div class="sidebar" id="sidebar">
-            <div class="sidebar-header">
+            <div class="sidebar-header d-flex justify-content-between align-items-center">
                 <h5><i class="bi bi-printer"></i> نظام المطبعة</h5>
+                <button class="btn btn-sm text-white d-md-none p-0" onclick="toggleSidebar()">
+                    <i class="bi bi-x-lg fs-5"></i>
+                </button>
             </div>
             <ul class="nav flex-column">
                 <li class="nav-item">
-                    <a class="nav-link {% if request.path == '/' %}active{% endif %}" href="{{ url_for('dashboard') }}">
-                        <i class="bi bi-speedometer2"></i> لوحة التحكم
+                    <a class="nav-link {% if request.path == '/' %}active{% endif %}" href="{{ url_for('dashboard') }}" onclick="closeSidebarMobile()">
+                        <i class="bi bi-speedometer2"></i> <span>لوحة التحكم</span>
                     </a>
                 </li>
                 <li class="nav-item">
-                    <a class="nav-link {% if '/products' in request.path %}active{% endif %}" href="{{ url_for('products') }}">
-                        <i class="bi bi-box"></i> المنتجات
+                    <a class="nav-link {% if '/products' in request.path %}active{% endif %}" href="{{ url_for('products') }}" onclick="closeSidebarMobile()">
+                        <i class="bi bi-box"></i> <span>المنتجات</span>
                     </a>
                 </li>
                 <li class="nav-item">
-                    <a class="nav-link {% if '/inventory' in request.path %}active{% endif %}" href="{{ url_for('inventory') }}">
-                        <i class="bi bi-clipboard-data"></i> المخزون
+                    <a class="nav-link {% if '/inventory' in request.path %}active{% endif %}" href="{{ url_for('inventory') }}" onclick="closeSidebarMobile()">
+                        <i class="bi bi-clipboard-data"></i> <span>المخزون</span>
                     </a>
                 </li>
                 <li class="nav-item">
-                    <a class="nav-link {% if '/customers' in request.path %}active{% endif %}" href="{{ url_for('customers') }}">
-                        <i class="bi bi-people"></i> العملاء
+                    <a class="nav-link {% if '/customers' in request.path %}active{% endif %}" href="{{ url_for('customers') }}" onclick="closeSidebarMobile()">
+                        <i class="bi bi-people"></i> <span>العملاء</span>
                     </a>
                 </li>
                 <li class="nav-item">
-                    <a class="nav-link {% if '/inquiries' in request.path %}active{% endif %}" href="{{ url_for('inquiries') }}">
-                        <i class="bi bi-chat-dots"></i> الاستفسارات
+                    <a class="nav-link {% if '/inquiries' in request.path %}active{% endif %}" href="{{ url_for('inquiries') }}" onclick="closeSidebarMobile()">
+                        <i class="bi bi-chat-dots"></i> <span>الاستفسارات</span>
                     </a>
                 </li>
                 <li class="nav-item">
-                    <a class="nav-link {% if '/sales' in request.path %}active{% endif %}" href="{{ url_for('sales') }}">
-                        <i class="bi bi-cart"></i> المبيعات
+                    <a class="nav-link {% if '/sales' in request.path %}active{% endif %}" href="{{ url_for('sales') }}" onclick="closeSidebarMobile()">
+                        <i class="bi bi-cart"></i> <span>المبيعات</span>
                     </a>
                 </li>
                 <li class="nav-item">
-                    <a class="nav-link {% if '/settings' in request.path %}active{% endif %}" href="{{ url_for('settings') }}">
-                        <i class="bi bi-gear"></i> الإعدادات
+                    <a class="nav-link {% if '/settings' in request.path %}active{% endif %}" href="{{ url_for('settings') }}" onclick="closeSidebarMobile()">
+                        <i class="bi bi-gear"></i> <span>الإعدادات</span>
                     </a>
                 </li>
                 <li class="nav-item mt-4">
                     <a class="nav-link text-danger" href="{{ url_for('logout') }}">
-                        <i class="bi bi-box-arrow-right"></i> خروج
+                        <i class="bi bi-box-arrow-right"></i> <span>خروج</span>
                     </a>
                 </li>
             </ul>
@@ -66,34 +78,99 @@
             </div>
         </div>
         {% endif %}
+
         <div class="content flex-grow-1" id="content">
             {% block content %}{% endblock %}
         </div>
     </div>
+
+    {% if session.logged_in %}
+    <!-- Bottom Navigation Bar (mobile) -->
+    <nav class="bottom-nav" id="bottomNav">
+        <div class="bottom-nav-inner">
+            <a href="{{ url_for('dashboard') }}" class="{% if request.path == '/' %}active{% endif %}">
+                <i class="bi bi-speedometer2"></i>
+                <span>الرئيسية</span>
+            </a>
+            <a href="{{ url_for('products') }}" class="{% if '/products' in request.path %}active{% endif %}">
+                <i class="bi bi-box"></i>
+                <span>المنتجات</span>
+            </a>
+            <a href="{{ url_for('inquiries') }}" class="{% if '/inquiries' in request.path %}active{% endif %}">
+                <i class="bi bi-chat-dots"></i>
+                <span>الاستفسارات</span>
+            </a>
+            <a href="{{ url_for('sales') }}" class="{% if '/sales' in request.path %}active{% endif %}">
+                <i class="bi bi-cart"></i>
+                <span>المبيعات</span>
+            </a>
+            <a href="{{ url_for('settings') }}" class="{% if '/settings' in request.path %}active{% endif %}">
+                <i class="bi bi-gear"></i>
+                <span>الإعدادات</span>
+            </a>
+        </div>
+        <div id="waBottomStatus"></div>
+    </nav>
+    {% endif %}
+
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
-    <script>
-    if ('serviceWorker' in navigator) {
-        navigator.serviceWorker.register('{{ url_for("static", filename="sw.js") }}');
-    }
-    </script>
     <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
     <script>
-        // Check WhatsApp status every 10 seconds
-        {% if session.logged_in %}
-        setInterval(async () => {
-            try {
-                const res = await axios.get('/api/whatsapp/status');
-                const el = document.querySelector('#waStatus span');
-                if (res.data.connected) {
-                    el.className = 'text-success';
-                    el.innerHTML = '✅ متصل';
-                } else {
-                    el.className = 'text-danger';
-                    el.innerHTML = '❌ غير متصل';
-                }
-            } catch(e) {}
-        }, 10000);
-        {% endif %}
+    // Register service worker
+    if ('serviceWorker' in navigator) {
+        window.addEventListener('load', () => {
+            navigator.serviceWorker.register('{{ url_for("static", filename="sw.js") }}');
+        });
+    }
+
+    // Sidebar toggle for mobile
+    function toggleSidebar() {
+        document.getElementById('sidebar').classList.toggle('open');
+        document.getElementById('sidebarOverlay').classList.toggle('show');
+    }
+    function closeSidebarMobile() {
+        if (window.innerWidth <= 768) {
+            document.getElementById('sidebar').classList.remove('open');
+            document.getElementById('sidebarOverlay').classList.remove('show');
+        }
+    }
+
+    // WhatsApp status polling
+    {% if session.logged_in %}
+    async function updateWAStatus() {
+        try {
+            const res = await axios.get('/api/whatsapp/status');
+            const el = document.querySelector('#waStatus span');
+            const bottomEl = document.querySelector('#waBottomStatus');
+            const navIcon = document.querySelector('.bottom-nav a.whatsapp-btn i');
+            if (res.data.connected) {
+                if (el) { el.className = 'text-success'; el.innerHTML = '✅ متصل'; }
+                if (bottomEl) { bottomEl.className = 'connected'; bottomEl.innerHTML = '✅ واتساب متصل'; }
+            } else if (res.data.qr) {
+                if (el) { el.className = 'text-warning'; el.innerHTML = '🟡 انتظر المسح'; }
+                if (bottomEl) { bottomEl.className = ''; bottomEl.innerHTML = '🟡 امسح QR'; }
+            } else {
+                if (el) { el.className = 'text-danger'; el.innerHTML = '❌ غير متصل'; }
+                if (bottomEl) { bottomEl.className = ''; bottomEl.innerHTML = '❌ غير متصل'; }
+            }
+        } catch(e) {
+            const el = document.querySelector('#waStatus span');
+            const bottomEl = document.querySelector('#waBottomStatus');
+            if (el) { el.className = 'text-danger'; el.innerHTML = '❌ غير متصل'; }
+            if (bottomEl) { bottomEl.innerHTML = '🔴 خادم متوقف'; }
+        }
+    }
+    updateWAStatus();
+    setInterval(updateWAStatus, 10000);
+    {% endif %}
+
+    // Close sidebar on Escape
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') {
+            document.getElementById('sidebar')?.classList.remove('open');
+            document.getElementById('sidebarOverlay')?.classList.remove('show');
+        }
+    });
     </script>
     {% block scripts %}{% endblock %}
 </body>
