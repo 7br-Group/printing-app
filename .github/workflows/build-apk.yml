@@ -85,34 +85,55 @@ jobs:
           print('Generated icons')
           "
 
-      # ── Build APK (capture logs) ──
+      # ── Build APK ──
       - name: Build APK with Buildozer
         working-directory: mobile_app
         shell: bash
         run: |
           set +e
-          echo "=== Debug Info ==="
-          python --version
-          which python
-          java -version 2>&1
-          which java
-          ls -la buildozer.spec
-          echo "=== Run Buildozer ==="
           python -m buildozer android debug 2>&1 | tee buildozer-output.log
-          echo "=== Exit: $? ==="
+          echo "BUILDOZER_EXIT=$?" >> $GITHUB_ENV
         continue-on-error: true
 
-      - name: Upload build logs
+      - name: Surface buildozer error via annotations
         if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: buildozer-logs
-          path: mobile_app/buildozer-output.log
-          retention-days: 7
-          if-no-files-found: continue
+        working-directory: mobile_app
+        shell: bash
+        run: |
+          if [ -f buildozer-output.log ]; then
+            lines=$(wc -l < buildozer-output.log)
+            if [ "$lines" -gt 0 ]; then
+              echo "::group::Buildozer output (full)"
+              cat buildozer-output.log
+              echo "::endgroup::"
+              # Surface first 40 lines as annotation
+              head -40 buildozer-output.log | while IFS= read -r line; do
+                echo "::error file=buildozer.spec,title=Buildozer Output::$(echo "$line" | head -c 200)"
+              done
+            else
+              echo "::warning::Buildozer output log is empty"
+            fi
+          else
+            echo "::error::buildozer-output.log not found"
+          fi
 
       # ── Upload ──
       - name: Upload APK
+        if: always()
+        run: |
+          if ls mobile_app/bin/*.apk 1>/dev/null 2>&1; then
+            echo "APK found, uploading..."
+          else
+            echo "::warning::No APK files found in mobile_app/bin/"
+            echo "Contents of mobile_app:"
+            ls -la mobile_app/
+            echo "Contents of mobile_app/bin (if exists):"
+            ls -la mobile_app/bin/ 2>&1 || true
+            echo "Contents of .buildozer (if exists):"
+            ls -la .buildozer/ 2>&1 || true
+          fi
+      - name: Upload APK artifact
+        if: success()
         uses: actions/upload-artifact@v4
         with:
           name: printing-app-apk
