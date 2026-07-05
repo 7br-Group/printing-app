@@ -45,15 +45,17 @@ jobs:
       # ── Install Python deps ──
       - name: Install Buildozer + Cython
         run: |
+          python --version
           pip install --upgrade pip setuptools wheel
           pip install cython buildozer
+          python -m buildozer --help
 
       # ── Compile WhatsApp server ──
       - name: Compile WhatsApp server with pkg
         working-directory: mobile_app/whatsapp_server
         run: |
           npm install
-          npm install -g pkg
+          sudo npm install -g pkg
           npx pkg server.js --target node18-linux-arm64 --output whatsapp-server 2>&1
           ls -lh whatsapp-server
           chmod +x whatsapp-server
@@ -62,7 +64,7 @@ jobs:
       - name: Generate icons
         working-directory: mobile_app
         run: |
-          python3 -c "
+          python -c "
           import struct, zlib
           def make_png(w, h, r, g, b):
               raw = b''
@@ -87,8 +89,10 @@ jobs:
       - name: Build APK with Buildozer
         working-directory: mobile_app
         run: |
+          echo "Python: $(python --version)"
+          echo "Java: $(java -version 2>&1)"
           echo "Building APK... (30-40 min)"
-          buildozer android debug 2>&1
+          python -m buildozer android debug 2>&1
 
       # ── Upload ──
       - name: Upload APK
