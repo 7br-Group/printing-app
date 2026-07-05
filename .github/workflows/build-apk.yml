@@ -87,9 +87,11 @@ jobs:
 
       # ── Build APK ──
       - name: Build APK with Buildozer
-        working-directory: mobile_app
         shell: bash
         run: |
+          cd mobile_app
+          pwd
+          ls -la buildozer.spec
           set +e
           python -m buildozer android debug 2>&1 | tee buildozer-output.log
           echo "BUILDOZER_EXIT=$?" >> $GITHUB_ENV
@@ -97,16 +99,15 @@ jobs:
 
       - name: Surface buildozer error via annotations
         if: always()
-        working-directory: mobile_app
         shell: bash
         run: |
+          cd mobile_app
           if [ -f buildozer-output.log ]; then
             lines=$(wc -l < buildozer-output.log)
             if [ "$lines" -gt 0 ]; then
               echo "::group::Buildozer output (full)"
               cat buildozer-output.log
               echo "::endgroup::"
-              # Surface first 40 lines as annotation
               head -40 buildozer-output.log | while IFS= read -r line; do
                 echo "::error file=buildozer.spec,title=Buildozer Output::$(echo "$line" | head -c 200)"
               done
@@ -115,22 +116,22 @@ jobs:
             fi
           else
             echo "::error::buildozer-output.log not found"
+            ls -la mobile_app/
           fi
 
       # ── Upload ──
       - name: Upload APK
         if: always()
+        shell: bash
         run: |
-          if ls mobile_app/bin/*.apk 1>/dev/null 2>&1; then
+          cd mobile_app
+          if ls bin/*.apk 1>/dev/null 2>&1; then
             echo "APK found, uploading..."
           else
-            echo "::warning::No APK files found in mobile_app/bin/"
-            echo "Contents of mobile_app:"
-            ls -la mobile_app/
-            echo "Contents of mobile_app/bin (if exists):"
-            ls -la mobile_app/bin/ 2>&1 || true
-            echo "Contents of .buildozer (if exists):"
-            ls -la .buildozer/ 2>&1 || true
+            echo "::warning::No APK files found in bin/"
+            echo "Contents:"
+            ls -la
+            ls -la bin/ 2>&1 || true
           fi
       - name: Upload APK artifact
         if: success()
