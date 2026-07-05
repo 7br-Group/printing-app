@@ -89,34 +89,28 @@ jobs:
       - name: Build APK with Buildozer
         shell: bash
         run: |
+          set +ex
           cd mobile_app
           pwd
-          ls -la buildozer.spec
-          set +e
-          python -m buildozer android debug 2>&1 | tee buildozer-output.log
-          echo "BUILDOZER_EXIT=$?" >> $GITHUB_ENV
+          python -m buildozer android debug 2>&1 | tee buildozer-output.log; echo "BUILDOZER_EXIT=$?" >> $GITHUB_ENV
         continue-on-error: true
 
       - name: Surface buildozer error via annotations
         if: always()
         shell: bash
         run: |
+          set +x
           cd mobile_app
           if [ -f buildozer-output.log ]; then
-            lines=$(wc -l < buildozer-output.log)
-            if [ "$lines" -gt 0 ]; then
-              echo "::group::Buildozer output (full)"
-              cat buildozer-output.log
-              echo "::endgroup::"
-              head -40 buildozer-output.log | while IFS= read -r line; do
-                echo "::error file=buildozer.spec,title=Buildozer Output::$(echo "$line" | head -c 200)"
-              done
-            else
-              echo "::warning::Buildozer output log is empty"
-            fi
+            echo "::group::Buildozer output"
+            cat buildozer-output.log
+            echo "::endgroup::"
+            head -5 buildozer-output.log | while IFS= read -r line; do
+              echo "::error file=buildozer.spec,title=Buildozer Output::$(echo "$line" | head -c 200)"
+            done
           else
-            echo "::error::buildozer-output.log not found"
-            ls -la mobile_app/
+            echo "::error::buildozer-output.log not found in $(pwd)"
+            ls -la
           fi
 
       # ── Upload ──
