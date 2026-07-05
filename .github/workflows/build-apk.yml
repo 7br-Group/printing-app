@@ -15,39 +15,57 @@ jobs:
   build:
     name: Build APK
     runs-on: ubuntu-24.04
-    timeout-minutes: 60
+    timeout-minutes: 90
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
 
       - name: Set up Node.js 18
         uses: actions/setup-node@v4
         with:
           node-version: 18
 
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq \
+            git zip unzip openjdk-17-jdk \
+            python3-pip autoconf libtool pkg-config \
+            zlib1g-dev libncurses5-dev libncursesw5-dev \
+            libtinfo5 cmake libffi-dev libssl-dev \
+            wget curl
+
       # ── Prepare build directory ──
-      - name: Copy web app
-        run: cp -r web_app mobile_app/web_app
+      - name: Copy project files to mobile_app
+        run: |
+          cp -r web_app mobile_app/web_app
+          cp -r whatsapp_server mobile_app/whatsapp_server
+          cp printing_app.db mobile_app/printing_app.db
 
-      - name: Copy WhatsApp server
-        run: cp -r whatsapp_server mobile_app/whatsapp_server
+      # ── Install Python deps ──
+      - name: Install Buildozer + Cython
+        run: |
+          pip install --upgrade pip setuptools wheel
+          pip install cython buildozer
 
-      - name: Copy database
-        run: cp printing_app.db mobile_app/printing_app.db
-
-      # ── Compile WhatsApp server to standalone binary (ARM64) ──
+      # ── Compile WhatsApp server ──
       - name: Compile WhatsApp server with pkg
         working-directory: mobile_app/whatsapp_server
         run: |
           npm install
           npm install -g pkg
-          npx pkg server.js --target node18-linux-arm64 --output whatsapp-server
+          npx pkg server.js --target node18-linux-arm64 --output whatsapp-server 2>&1
           ls -lh whatsapp-server
           chmod +x whatsapp-server
 
-      # ── Splash & icon ──
-      - name: Generate splash screen and icon
+      # ── Generate splash & icon ──
+      - name: Generate icons
         working-directory: mobile_app
         run: |
           python3 -c "
@@ -58,17 +76,14 @@ jobs:
                   raw += b'\x00'
                   for x in range(w):
                       cy = y / h
-                      raw += struct.pack('BBBB',
-                          int(r * (1 - cy * 0.3)),
-                          int(g * (1 - cy * 0.3)),
-                          int(b * (1 - cy * 0.3)), 255)
-              compressed = zlib.compress(raw)
+                      raw += struct.pack('BBBB', int(r*(1-cy*0.3)), int(g*(1-cy*0.3)), int(b*(1-cy*0.3)), 255)
+              comp = zlib.compress(raw)
               sig = b'\x89PNG\r\n\x1a\n'
               ihdr = struct.pack('>IIBBBBB', w, h, 8, 6, 0, 0, 0)
               def chunk(t, d):
                   c = t + d
                   return struct.pack('>I', len(d)) + c + struct.pack('>I', zlib.crc32(c) & 0xffffffff)
-              return sig + chunk(b'IHDR', ihdr) + chunk(b'IDAT', compressed) + chunk(b'IEND', b'')
+              return sig + chunk(b'IHDR', ihdr) + chunk(b'IDAT', comp) + chunk(b'IEND', b'')
           for name, sz in [('splash.png', 512), ('icon.png', 192)]:
               with open(name, 'wb') as f: f.write(make_png(sz, sz, 59, 130, 246))
           print('Generated icons')
@@ -76,10 +91,10 @@ jobs:
 
       # ── Build APK ──
       - name: Build APK with Buildozer
-        uses: ArtemSBulgakov/buildozer-action@v1
-        with:
-          workdir: mobile_app
-          buildozer_version: stable
+        working-directory: mobile_app
+        run: |
+          echo "Building APK... (30-40 min)"
+          buildozer android debug 2>&1
 
       # ── Upload ──
       - name: Upload APK
@@ -89,25 +104,3 @@ jobs:
           path: mobile_app/bin/*.apk
           retention-days: 90
           if-no-files-found: error
-
-      # ── Summary ──
-      - name: Generate summary
-        run: |
-          APK=$(ls mobile_app/bin/*.apk 2>/dev/null || echo "not found")
-          SIZE=$(stat --printf='%s' "$APK" 2>/dev/null || echo 0)
-          cat >> $GITHUB_STEP_SUMMARY << 'EOF'
-          ## ✅ APK Build Complete
-
-          | Item | Value |
-          |------|-------|
-          | APK | `$APK` |
-          | Size | $((SIZE / 1048576)) MB ($SIZE bytes) |
-
-          📥 **Download**: Go to **Summary** → **Artifacts** → download `printing-app-apk`
-
-          ### Screenshots
-          > Install the APK on your phone, then open it. Login with password: `admin`
-
-          ### WhatsApp
-          > WhatsApp bot is bundled in this APK. Scan the QR code displayed on screen.
-          EOF
