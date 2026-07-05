@@ -88,15 +88,21 @@ jobs:
       # ── Build APK ──
       - name: Build APK with Buildozer
         working-directory: mobile_app
+        continue-on-error: true
         run: |
-          echo "=== Python ===" && python --version
-          echo "=== Java ===" && java -version 2>&1 || echo "JAVA NOT FOUND"
-          echo "=== Which buildozer ===" && which buildozer 2>&1 || echo "buildozer not in PATH"
-          echo "=== Buildozer version ===" && python -m buildozer --version 2>&1
-          echo "=== Check spec ===" && ls -la buildozer.spec 2>&1
-          echo "=== Building APK... ==="
-          python -m buildozer --verbose android debug 2>&1
-          echo "=== Build exit code: $? ==="
+          echo "=== Python ==="
+          python --version
+          echo "=== Java ==="
+          java -version 2>&1
+          echo "=== Buildozer ==="
+          pip show buildozer 2>&1
+          echo "=== Spec file ==="
+          cat -n buildozer.spec 2>&1
+          echo "=== Try init ==="
+          python -m buildozer init 2>&1
+          echo "=== Try android ==="
+          python -m buildozer android debug 2>&1
+          echo "=== DONE ==="
 
       # ── Upload ──
       - name: Upload APK
