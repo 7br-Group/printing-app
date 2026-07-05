@@ -89,9 +89,14 @@ jobs:
       - name: Build APK with Buildozer
         shell: bash
         run: |
-          set +ex
-          cd mobile_app
+          set +e
+          APPDIR="$GITHUB_WORKSPACE/mobile_app"
+          echo "APPDIR=$APPDIR"
+          ls -la "$APPDIR/buildozer.spec"
+          cd "$APPDIR"
           pwd
+          echo "Trying python -m buildozer..."
+          python -c "import os; print('CWD:', os.getcwd()); print('spec exists:', os.path.exists('buildozer.spec'))"
           python -m buildozer android debug 2>&1 | tee buildozer-output.log; echo "BUILDOZER_EXIT=$?" >> $GITHUB_ENV
         continue-on-error: true
 
@@ -99,8 +104,9 @@ jobs:
         if: always()
         shell: bash
         run: |
-          set +x
-          cd mobile_app
+          set +e
+          APPDIR="$GITHUB_WORKSPACE/mobile_app"
+          cd "$APPDIR"
           if [ -f buildozer-output.log ]; then
             echo "::group::Buildozer output"
             cat buildozer-output.log
