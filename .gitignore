@@ -16,8 +16,17 @@ whatsapp_server/.wwebjs_cache/
 whatsapp_server/.wwebjs_test*/
 whatsapp_server/node.exe
 
-# Database - don't include the default one
+# Mobile APK build (generated files)
+mobile_app/web_app/
+mobile_app/whatsapp_server/
+mobile_app/printing_app.db
+mobile_app/splash.png
+mobile_app/icon.png
+mobile_app/bin/
+
+# Database - don't include the default one (except root for template)
 *.db
+!printing_app.db
 
 # OS
 .DS_Store
