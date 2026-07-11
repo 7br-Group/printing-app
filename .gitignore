@@ -6,6 +6,7 @@ __pycache__/
 dist/
 build/
 *.spec
+!web_app.spec
 venv/
 .env
 
@@ -24,9 +25,16 @@ mobile_app/splash.png
 mobile_app/icon.png
 mobile_app/bin/
 
-# Database - don't include the default one (except root for template)
+# Database
 *.db
-!printing_app.db
+printing_app.db
+
+# WhatsApp session (root level)
+.wwebjs_auth/
+.wwebjs_cache/
+
+# Build logs
+exe_output.txt
 
 # OS
 .DS_Store

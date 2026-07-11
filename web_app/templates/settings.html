@@ -6,7 +6,32 @@
     <div class="row g-3 mt-2">
         <div class="col-md-6">
             <div class="card">
-                <div class="card-header"><i class="bi bi-building"></i> الإعدادات العامة</div>
+                <div class="card-header"><i class="bi bi-palette"></i> مظهر التطبيق</div>
+                <div class="card-body">
+                    <div class="mb-2">
+                        <label class="form-label">اسم التطبيق</label>
+                        <input type="text" class="form-control" id="appName" placeholder="نظام الإدارة">
+                    </div>
+                    <div class="mb-2">
+                        <label class="form-label">أيقونة التطبيق</label>
+                        <select class="form-select" id="appIcon">
+                            <option value="bi-gear">⚙️ ترس</option>
+                            <option value="bi-building">🏢 مبنى</option>
+                            <option value="bi-shop">🏪 متجر</option>
+                            <option value="bi-printer">🖨️ طابعة</option>
+                            <option value="bi-box-seam">📦 صندوق</option>
+                            <option value="bi-cart">🛒 عربة</option>
+                            <option value="bi-bag-check">🛍️ حقيبة</option>
+                            <option value="bi-laptop">💻 حاسب</option>
+                            <option value="bi-phone">📱 هاتف</option>
+                        </select>
+                    </div>
+                    <button class="btn btn-success" onclick="saveSettings()"><i class="bi bi-save"></i> حفظ المظهر</button>
+                </div>
+            </div>
+
+            <div class="card mt-3">
+                <div class="card-header"><i class="bi bi-building"></i> بيانات الشركة</div>
                 <div class="card-body">
                     <div class="mb-2">
                         <label class="form-label">اسم الشركة</label>
@@ -21,6 +46,60 @@
                         <input type="text" class="form-control" id="companyWhatsapp">
                     </div>
                     <button class="btn btn-success" onclick="saveSettings()"><i class="bi bi-save"></i> حفظ</button>
+                </div>
+            </div>
+
+            <div class="card mt-3">
+                <div class="card-header"><i class="bi bi-palette"></i> تخصيص البرنامج</div>
+                <div class="card-body">
+                    <div class="mb-2">
+                        <label class="form-label">عنوان البرنامج (يظهر في شريط العنوان)</label>
+                        <input type="text" class="form-control" id="appTitle" placeholder="نظام إدارة مطبعة - Printing Management System">
+                    </div>
+                    <div class="mb-2">
+                        <label class="form-label">نص الشعار (يظهر في القائمة الجانبية)</label>
+                        <input type="text" class="form-control" id="appLogoText" placeholder="🖨️ نظام المطبعة">
+                    </div>
+                    <button class="btn btn-success" onclick="saveSettings()"><i class="bi bi-save"></i> حفظ</button>
+                </div>
+            </div>
+
+            <div class="card mt-3">
+                <div class="card-header"><i class="bi bi-lock"></i> أمان الإعدادات</div>
+                <div class="card-body">
+                    <div class="mb-2">
+                        <label class="form-label">كلمة المرور الحالية</label>
+                        <input type="password" class="form-control" id="currentPassword" placeholder="كلمة المرور الحالية">
+                    </div>
+                    <div class="mb-2">
+                        <label class="form-label">كلمة المرور الجديدة</label>
+                        <input type="password" class="form-control" id="newPassword" placeholder="كلمة المرور الجديدة">
+                    </div>
+                    <div class="mb-2">
+                        <label class="form-label">تأكيد كلمة المرور الجديدة</label>
+                        <input type="password" class="form-control" id="confirmPassword" placeholder="تأكيد كلمة المرور الجديدة">
+                    </div>
+                    <button class="btn btn-warning" onclick="changePassword()"><i class="bi bi-key"></i> تغيير كلمة المرور</button>
+                    <p class="text-muted mt-2 small">💡 كلمة المرور الافتراضية: admin123</p>
+                </div>
+            </div>
+
+            <div class="card mt-3">
+                <div class="card-header"><i class="bi bi-lock"></i> الأمان</div>
+                <div class="card-body">
+                    <div class="mb-2">
+                        <label class="form-label">كلمة مرور الدخول</label>
+                        <input type="password" class="form-control" id="loginPassword" placeholder="اترك فارغاً لعدم التغيير">
+                    </div>
+                    <div class="mb-2">
+                        <label class="form-label">كلمة مرور الإعدادات (Admin)</label>
+                        <input type="password" class="form-control" id="adminPassword" placeholder="اترك فارغاً لعدم التغيير">
+                    </div>
+                    <div class="mb-2">
+                        <label class="form-label">تأكيد كلمة المرور الحالية للإعدادات</label>
+                        <input type="password" class="form-control" id="currentAdminPassword" placeholder="أدخل كلمة مرور الإعدادات الحالية">
+                    </div>
+                    <button class="btn btn-warning" onclick="saveSecuritySettings()"><i class="bi bi-shield-lock"></i> حفظ الأمان</button>
                 </div>
             </div>
 
@@ -82,11 +161,16 @@ let keywords = [];
 
 async function loadSettings() {
     const res = await axios.get('/api/settings');
-    document.getElementById('companyName').value = res.data.company_name || '';
-    document.getElementById('companyPhone').value = res.data.company_phone || '';
-    document.getElementById('companyWhatsapp').value = res.data.company_whatsapp || '';
-    document.getElementById('welcomeMsg').value = res.data.auto_welcome || 'مرحباً بك! 👋\nشكراً لتواصلك معنا.\nكيف نقدر نساعدك؟';
-    try { keywords = JSON.parse(res.data.auto_replies || '{}'); } catch(e) { keywords = {}; }
+    const d = res.data;
+    document.getElementById('appName').value = d.app_name || '';
+    document.getElementById('appIcon').value = d.app_icon || 'bi-gear';
+    document.getElementById('appTitle').value = d.app_title || '';
+    document.getElementById('appLogoText').value = d.app_logo_text || '';
+    document.getElementById('companyName').value = d.company_name || '';
+    document.getElementById('companyPhone').value = d.company_phone || '';
+    document.getElementById('companyWhatsapp').value = d.company_whatsapp || '';
+    document.getElementById('welcomeMsg').value = d.auto_welcome || 'مرحباً بك! 👋\nشكراً لتواصلك معنا.\nكيف نقدر نساعدك؟';
+    try { keywords = JSON.parse(d.auto_replies || '{}'); } catch(e) { keywords = {}; }
     renderKeywords();
     refreshWAStatus();
 }
@@ -94,7 +178,7 @@ async function loadSettings() {
 function renderKeywords() {
     const tbody = document.getElementById('keywordsBody');
     const entries = Object.entries(keywords);
-    tbody.innerHTML = entries.map(([k, v], i) => `
+    tbody.innerHTML = entries.map(([k, v]) => `
         <tr>
             <td>${k}</td>
             <td>${v}</td>
@@ -124,11 +208,48 @@ async function saveReplies() {
 
 async function saveSettings() {
     await axios.post('/api/settings', {
+        app_name: document.getElementById('appName').value,
+        app_icon: document.getElementById('appIcon').value,
+        app_title: document.getElementById('appTitle').value,
+        app_logo_text: document.getElementById('appLogoText').value,
         company_name: document.getElementById('companyName').value,
         company_phone: document.getElementById('companyPhone').value,
         company_whatsapp: document.getElementById('companyWhatsapp').value,
     });
     alert('✅ تم حفظ الإعدادات');
+}
+
+async function changePassword() {
+    const current = document.getElementById('currentPassword').value;
+    const newPw = document.getElementById('newPassword').value;
+    const confirm = document.getElementById('confirmPassword').value;
+    if (!current) { alert('أدخل كلمة المرور الحالية'); return; }
+    if (!newPw) { alert('أدخل كلمة المرور الجديدة'); return; }
+    if (newPw !== confirm) { alert('كلمة المرور الجديدة وتأكيدها غير متطابقين'); return; }
+    await axios.post('/api/settings', {
+        _verify_settings_password: current,
+        settings_password: newPw,
+    });
+    alert('✅ تم تغيير كلمة المرور');
+    document.getElementById('currentPassword').value = '';
+    document.getElementById('newPassword').value = '';
+    document.getElementById('confirmPassword').value = '';
+}
+
+async function saveSecuritySettings() {
+    const current = document.getElementById('currentAdminPassword').value;
+    if (!current) { alert('أدخل كلمة مرور الإعدادات الحالية أولاً'); return; }
+    const payload = { _verify_admin: current };
+    const loginPw = document.getElementById('loginPassword').value;
+    const adminPw = document.getElementById('adminPassword').value;
+    if (loginPw) payload.login_password = loginPw;
+    if (adminPw) payload.admin_password = adminPw;
+    if (!loginPw && !adminPw) { alert('اكتب كلمة مرور جديدة أولاً'); return; }
+    await axios.post('/api/settings', payload);
+    alert('✅ تم حفظ كلمات المرور');
+    document.getElementById('loginPassword').value = '';
+    document.getElementById('adminPassword').value = '';
+    document.getElementById('currentAdminPassword').value = '';
 }
 
 async function refreshWAStatus() {

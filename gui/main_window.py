@@ -1433,6 +1433,54 @@ class SettingsWidget(QWidget):
         self.company_whatsapp.setText(db.get_setting("company_whatsapp", ""))
         general_layout.addRow("واتساب الشركة:", self.company_whatsapp)
 
+        branding_group = QGroupBox("🎨 تخصيص البرنامج (ليكون مناسب لأي مشروع)")
+        branding_layout = QFormLayout(branding_group)
+
+        self.app_title = QLineEdit()
+        self.app_title.setText(db.get_setting("app_title", "نظام إدارة مطبعة - Printing Management System"))
+        self.app_title.setPlaceholderText("العنوان اللي يظهر في شريط البرنامج")
+        branding_layout.addRow("عنوان البرنامج:", self.app_title)
+
+        self.app_logo_text = QLineEdit()
+        self.app_logo_text.setText(db.get_setting("app_logo_text", "🖨️ نظام المطبعة"))
+        self.app_logo_text.setPlaceholderText("النص اللي يظهر في الشريط الجانبي")
+        branding_layout.addRow("نص الشعار:", self.app_logo_text)
+
+        layout.addWidget(branding_group)
+
+        security_group = QGroupBox("🔒 أمان الإعدادات")
+        security_layout = QFormLayout(security_group)
+
+        current_pass_layout = QHBoxLayout()
+        self.current_password = QLineEdit()
+        self.current_password.setPlaceholderText("كلمة المرور الحالية")
+        self.current_password.setEchoMode(QLineEdit.EchoMode.Password)
+        current_pass_layout.addWidget(self.current_password)
+
+        self.new_password = QLineEdit()
+        self.new_password.setPlaceholderText("كلمة المرور الجديدة")
+        self.new_password.setEchoMode(QLineEdit.EchoMode.Password)
+        current_pass_layout.addWidget(self.new_password)
+
+        self.confirm_password = QLineEdit()
+        self.confirm_password.setPlaceholderText("تأكيد كلمة المرور الجديدة")
+        self.confirm_password.setEchoMode(QLineEdit.EchoMode.Password)
+        current_pass_layout.addWidget(self.confirm_password)
+
+        security_layout.addRow("تغيير كلمة المرور:", current_pass_layout)
+
+        change_pass_btn = QPushButton("🔑 تغيير كلمة المرور")
+        change_pass_btn.setObjectName("warningBtn")
+        change_pass_btn.clicked.connect(self.change_password)
+        security_layout.addRow("", change_pass_btn)
+
+        pass_info = QLabel("💡 كلمة المرور الافتراضية: admin123\nيتم استخدامها عند الدخول للإعدادات من الشريط الجانبي")
+        pass_info.setStyleSheet("font-size: 12px; color: #7f8c8d; padding: 8px; background: #f8f9fa; border-radius: 5px;")
+        pass_info.setWordWrap(True)
+        security_layout.addRow(pass_info)
+
+        layout.addWidget(security_group)
+
         save_btn = QPushButton("💾 حفظ الإعدادات")
         save_btn.setObjectName("successBtn")
         save_btn.clicked.connect(self.save_settings)
@@ -1661,10 +1709,34 @@ class SettingsWidget(QWidget):
         self.db.set_setting("company_name", self.company_name.text())
         self.db.set_setting("company_phone", self.company_phone.text())
         self.db.set_setting("company_whatsapp", self.company_whatsapp.text())
+        self.db.set_setting("app_title", self.app_title.text())
+        self.db.set_setting("app_logo_text", self.app_logo_text.text())
         self.db.set_setting("server_url", self.server_url.text())
         self.db.set_setting("server_port", str(self.server_port.value()))
         self.db.set_setting("network_mode", "server" if self.server_mode.currentIndex() == 0 else "client")
-        QMessageBox.information(self, "نجاح", "تم حفظ الإعدادات بنجاح")
+        QMessageBox.information(self, "نجاح", "تم حفظ الإعدادات بنجاح\nسيتم تطبيق التغييرات بعد إعادة تشغيل البرنامج")
+
+    def change_password(self):
+        current = self.current_password.text()
+        new = self.new_password.text()
+        confirm = self.confirm_password.text()
+
+        stored = self.db.get_setting("settings_password", "admin123")
+        if current != stored:
+            QMessageBox.warning(self, "خطأ", "كلمة المرور الحالية غير صحيحة")
+            return
+        if not new:
+            QMessageBox.warning(self, "خطأ", "كلمة المرور الجديدة لا يمكن أن تكون فارغة")
+            return
+        if new != confirm:
+            QMessageBox.warning(self, "خطأ", "كلمة المرور الجديدة وتأكيدها غير متطابقين")
+            return
+
+        self.db.set_setting("settings_password", new)
+        self.current_password.clear()
+        self.new_password.clear()
+        self.confirm_password.clear()
+        QMessageBox.information(self, "نجاح", "تم تغيير كلمة المرور بنجاح")
 
     def backup_db(self):
         path, _ = QFileDialog.getSaveFileName(
@@ -2136,11 +2208,52 @@ class IntegrationWidget(QWidget):
 # ===========================
 # Main Window
 # ===========================
+class PasswordDialog(QDialog):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("تأكيد الدخول")
+        self.setMinimumWidth(350)
+        self.setLayoutDirection(Qt.LayoutDirection.RightToLeft)
+        layout = QVBoxLayout(self)
+        layout.setSpacing(15)
+
+        label = QLabel("🔒 يرجى إدخال كلمة المرور للدخول إلى الإعدادات")
+        label.setStyleSheet("font-size: 14px; font-weight: bold; color: #2c3e50;")
+        label.setWordWrap(True)
+        layout.addWidget(label)
+
+        self.password_input = QLineEdit()
+        self.password_input.setPlaceholderText("كلمة المرور")
+        self.password_input.setEchoMode(QLineEdit.EchoMode.Password)
+        layout.addWidget(self.password_input)
+
+        btn_layout = QHBoxLayout()
+        ok_btn = QPushButton("دخول")
+        ok_btn.setObjectName("primaryBtn")
+        ok_btn.clicked.connect(self.accept)
+        btn_layout.addWidget(ok_btn)
+
+        cancel_btn = QPushButton("إلغاء")
+        cancel_btn.setObjectName("dangerBtn")
+        cancel_btn.clicked.connect(self.reject)
+        btn_layout.addWidget(cancel_btn)
+
+        btn_layout.addStretch()
+        layout.addLayout(btn_layout)
+
+        self.password_input.returnPressed.connect(self.accept)
+
+    def get_password(self):
+        return self.password_input.text()
+
+
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.db = DatabaseManager()
-        self.setWindowTitle("نظام إدارة مطبعة - Printing Management System")
+        self.settings_unlocked = False
+        app_title = self.db.get_setting("app_title", "نظام إدارة مطبعة - Printing Management System")
+        self.setWindowTitle(app_title)
         self.setMinimumSize(1200, 700)
         self.setLayoutDirection(Qt.LayoutDirection.RightToLeft)
 
@@ -2156,7 +2269,8 @@ class MainWindow(QMainWindow):
         sidebar_layout.setContentsMargins(0, 0, 0, 0)
         sidebar_layout.setSpacing(0)
 
-        logo = QLabel("🖨️ نظام المطبعة")
+        logo_text = self.db.get_setting("app_logo_text", "🖨️ نظام المطبعة")
+        logo = QLabel(logo_text)
         logo.setObjectName("sidebarTitle")
         logo.setAlignment(Qt.AlignmentFlag.AlignCenter)
         sidebar_layout.addWidget(logo)
@@ -2198,6 +2312,19 @@ class MainWindow(QMainWindow):
         self.switch_page(0)
 
     def switch_page(self, index):
+        if index == 7 and not self.settings_unlocked:
+            settings_password = self.db.get_setting("settings_password", "admin123")
+            dialog = PasswordDialog(self)
+            if dialog.exec() == QDialog.DialogCode.Accepted:
+                if dialog.get_password() == settings_password:
+                    self.settings_unlocked = True
+                else:
+                    QMessageBox.warning(self, "خطأ", "كلمة المرور خاطئة")
+                    return
+            else:
+                return
+        elif index != 7:
+            self.settings_unlocked = False
         self.stack.setCurrentIndex(index)
         for i, btn in enumerate(self.nav_buttons):
             btn.setChecked(i == index)

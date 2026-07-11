@@ -6,7 +6,18 @@ from database.db_manager import DatabaseManager
 from datetime import datetime, timedelta
 from functools import wraps
 
-app = Flask(__name__)
+# Handle frozen EXE paths
+if getattr(sys, 'frozen', False):
+    _root = sys._MEIPASS
+    _web = os.path.join(_root, 'web_app')
+else:
+    _root = os.path.dirname(os.path.abspath(__file__))
+    _web = _root
+
+app = Flask(__name__,
+            template_folder=os.path.join(_web, 'templates'),
+            static_folder=os.path.join(_web, 'static'),
+            root_path=_web)
 app.secret_key = os.environ.get('SECRET_KEY', 'printing-app-secret-key-change-in-production')
 app.config['RTL'] = True
 
@@ -16,6 +27,13 @@ def get_db():
     db_path = os.environ.get('DATABASE_PATH', os.path.join(os.path.dirname(__file__), '..', 'printing_app.db'))
     return DatabaseManager(db_path)
 
+def get_setting(key, default=''):
+    db = get_db()
+    try:
+        return db.get_setting(key, default)
+    finally:
+        db.close()
+
 def login_required(f):
     @wraps(f)
     def decorated(*args, **kwargs):
@@ -24,10 +42,29 @@ def login_required(f):
         return f(*args, **kwargs)
     return decorated
 
+def admin_required(f):
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        if not session.get('logged_in'):
+            return redirect(url_for('login'))
+        if not session.get('admin'):
+            return redirect(url_for('settings_login'))
+        return f(*args, **kwargs)
+    return decorated
+
+@app.context_processor
+def inject_config():
+    return {
+        'app_name':    get_setting('app_name') or get_setting('app_logo_text') or os.environ.get('APP_NAME', 'نظام الإدارة'),
+        'company_name': get_setting('company_name') or os.environ.get('COMPANY_NAME', 'شركتي'),
+        'app_icon':    get_setting('app_icon') or os.environ.get('APP_ICON', 'bi-gear'),
+    }
+
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     if request.method == 'POST':
-        if request.form.get('password') == 'admin':
+        login_pass = get_setting('login_password') or os.environ.get('LOGIN_PASSWORD', 'admin')
+        if request.form.get('password') == login_pass:
             session['logged_in'] = True
             return redirect(url_for('dashboard'))
         return render_template('login.html', error='كلمة المرور خطأ')
@@ -35,7 +72,7 @@ def login():
 
 @app.route('/logout')
 def logout():
-    session.pop('logged_in', None)
+    session.clear()
     return redirect(url_for('login'))
 
 @app.route('/')
@@ -204,22 +241,57 @@ def api_movements():
     finally:
         db.close()
 
+@app.route('/settings/login', methods=['GET', 'POST'])
+@login_required
+def settings_login():
+    if request.method == 'POST':
+        admin_pass = get_setting('admin_password') or os.environ.get('ADMIN_PASSWORD', 'admin')
+        if request.form.get('password') == admin_pass:
+            session['admin'] = True
+            return redirect(url_for('settings'))
+        return render_template('settings_login.html', error='كلمة مرور خاطئة')
+    return render_template('settings_login.html')
+
+@app.route('/settings/logout')
+@login_required
+def settings_logout():
+    session.pop('admin', None)
+    return redirect(url_for('settings'))
+
 @app.route('/settings')
 @login_required
 def settings():
+    if not session.get('admin'):
+        return redirect(url_for('settings_login'))
     return render_template('settings.html')
 
 @app.route('/api/settings', methods=['GET', 'POST'])
-@login_required
+@admin_required
 def api_settings():
     db = get_db()
     try:
         if request.method == 'GET':
-            keys = ['company_name', 'company_phone', 'company_whatsapp', 'auto_welcome', 'auto_replies']
+            keys = ['company_name', 'company_phone', 'company_whatsapp',
+                    'auto_welcome', 'auto_replies', 'app_name', 'app_icon',
+                    'app_title', 'app_logo_text', 'settings_password',
+                    'admin_password']
             return jsonify({k: db.get_setting(k, '') for k in keys})
         elif request.method == 'POST':
-            for key, value in request.json.items():
-                db.set_setting(key, value)
+            data = request.json
+            verify = data.pop('_verify_admin', '')
+            if verify:
+                admin_pass = get_setting('admin_password') or os.environ.get('ADMIN_PASSWORD', 'admin')
+                if verify != admin_pass:
+                    return jsonify({'success': False, 'error': 'كلمة مرور الإعدادات الحالية خاطئة'}), 403
+            verify_settings = data.pop('_verify_settings_password', '')
+            if verify_settings:
+                current = db.get_setting('settings_password', 'admin123')
+                if verify_settings != current:
+                    return jsonify({'success': False, 'error': 'كلمة المرور الحالية غير صحيحة'}), 403
+            for key, value in data.items():
+                if key in ('admin_password', 'login_password') and not value:
+                    continue
+                db.set_setting(key, str(value))
             return jsonify({'success': True})
     finally:
         db.close()

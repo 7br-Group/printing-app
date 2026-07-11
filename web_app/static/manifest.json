@@ -1,7 +1,7 @@
 {
-  "name": "نظام إدارة المطبعة",
-  "short_name": "المطبعة",
-  "description": "نظام إدارة المطبعة مع واتساب - طلب منتجات، متابعة مخزون، مبيعات",
+  "name": "نظام الإدارة",
+  "short_name": "الإدارة",
+  "description": "نظام إدارة متكامل مع واتساب",
   "start_url": "/?source=pwa",
   "display": "standalone",
   "background_color": "#0f172a",

@@ -22,8 +22,7 @@ const conversations = {};
 const ORDER_STEPS = { NONE: 'none', AWAITING_QUANTITY: 'awaiting_quantity', AWAITING_PAYMENT: 'awaiting_payment', CONFIRMED: 'confirmed' };
 const customerInterests = {};
 
-const DB_PATH = path.join(__dirname, '..', 'printing_app.db');
-process.env.DATABASE_PATH = DB_PATH;
+const DB_PATH = process.env.DATABASE_PATH || path.join(__dirname, '..', 'printing_app.db');
 
 function getDb() {
     try { return new (require('sqlite3')).Database(DB_PATH); }
@@ -163,31 +162,44 @@ async function getAutoReply(message, fromNumber) {
     const normalized = normalizeArabic(message);
     const conv = conversations[fromNumber];
 
+    // ── Check auto-replies from settings ──────────────────────────
+    for (const [keyword, reply] of Object.entries(autoReplies)) {
+        if (normalized.includes(normalizeArabic(keyword))) {
+            return reply;
+        }
+    }
+
+    // ── Order flow: awaiting quantity ─────────────────────────────
     if (conv && conv.step === ORDER_STEPS.AWAITING_QUANTITY) {
         const qty = extractNumber(message);
-        if (qty && qty > 0) { conv.quantity = qty; conv.step = ORDER_STEPS.AWAITING_PAYMENT; return `حضرتك عايز ${qty} قطعة من *${conv.productName}*\n\nإزاي تحب تدفع؟\n1️⃣ كاش\n2️⃣ بطاقة ائتمان\n3️⃣ فودافون كاش\n4️⃣ انستاباي`; }
-        if (normalized.includes('لا') || normalized.includes('مش') || normalized.includes('الف')) { conv.step = ORDER_STEPS.NONE; return 'تمام، لو احتجت أي حاجة تاني أنا موجود 🤝'; }
+        if (qty && qty > 0) {
+            conv.quantity = qty;
+            conv.step = ORDER_STEPS.AWAITING_PAYMENT;
+            return `حضرتك عايز ${qty} قطعة من *${conv.productName}*\n\nاختر طريقة الدفع:\n1️⃣ كاش\n2️⃣ بطاقة ائتمان\n3️⃣ فودافون كاش\n4️⃣ انستاباي`;
+        }
+        if (normalized.includes('لا') || normalized.includes('مش') || normalized.includes('الف')) {
+            conv.step = ORDER_STEPS.NONE;
+            return 'تمام، لو احتجت أي حاجة تاني أنا موجود 🤝';
+        }
         return 'من فضلك اكتب العدد المطلوب (مثلاً: 5)\nأو أرسل "لا" للإلغاء';
     }
 
+    // ── Order flow: awaiting payment → confirm order ──────────────
     if (conv && conv.step === ORDER_STEPS.AWAITING_PAYMENT) {
         const method = detectPaymentMethod(message);
         if (method) {
-            conv.paymentMethod = method; conv.step = ORDER_STEPS.CONFIRMED;
-            const db = getDb();
-            if (db) {
-                const inquiryMsg = `🛒 *طلب جديد*\nالمنتج: ${conv.productName}\nالكمية: ${conv.quantity}\nطريقة الدفع: ${method}\nتيلفون: ${fromNumber}`;
-                db.run(`INSERT INTO inquiries (customer_id, source, message, product_id, status, priority) VALUES (NULL, 'whatsapp', ?, ?, 'pending', 'high')`, [inquiryMsg, conv.productId], () => db.close());
-            }
-            return `✅ *تم تسجيل طلبك!*\n\nالمنتج: *${conv.productName}*\nالكمية: ${conv.quantity}\nطريقة الدفع: ${method}\n\nسنقوم بالتواصل معك قريباً لتأكيد الطلب وشحن المنتج.\nشكراً لتسوقك معنا! 🙏`;
+            conv.paymentMethod = method;
+            conv.step = ORDER_STEPS.CONFIRMED;
+            saveOrderToDB(conv, fromNumber, message);
+            return `✅ *تم تسجيل طلبك!*\n\nالمنتج: *${conv.productName}*\nالكمية: ${conv.quantity}\nطريقة الدفع: ${method}\n\nسنقوم بالتواصل معك قريباً لتأكيد الطلب.\nشكراً لتسوقك معنا! 🙏`;
         }
         return 'طريقة الدفع غير معروفة. اختر:\n1️⃣ كاش\n2️⃣ بطاقة ائتمان\n3️⃣ فودافون كاش\n4️⃣ انستاباي';
     }
 
     if (isGreeting(message) && welcomeMessage) return welcomeMessage;
-
     if (isListProductsRequest(message)) return formatProductList(productsCache);
 
+    // ── Match product ─────────────────────────────────────────────
     const matchedProduct = matchProduct(message, productsCache);
     if (matchedProduct) {
         if (!customerInterests[fromNumber]) customerInterests[fromNumber] = {};
@@ -195,7 +207,14 @@ async function getAutoReply(message, fromNumber) {
         if (!customerInterests[fromNumber][key]) customerInterests[fromNumber][key] = { productId: key, productName: matchedProduct.name, count: 0 };
         customerInterests[fromNumber][key].count++;
 
-        conversations[fromNumber] = { productId: key, productName: matchedProduct.name, step: ORDER_STEPS.NONE, lastMessage: message, timestamp: Date.now() };
+        conversations[fromNumber] = {
+            productId: key,
+            productName: matchedProduct.name,
+            productPrice: matchedProduct.price,
+            step: ORDER_STEPS.NONE,
+            lastMessage: message,
+            timestamp: Date.now()
+        };
 
         if (hasBuyingIntent(message)) {
             conversations[fromNumber].step = ORDER_STEPS.AWAITING_QUANTITY;
@@ -208,8 +227,7 @@ async function getAutoReply(message, fromNumber) {
         if (matchedProduct.description) r += `\n📝 ${matchedProduct.description}`;
         r += `\n\nعايز تشتري؟ أرسل "عايز ${matchedProduct.name}"`;
 
-        const db = getDb();
-        if (db) db.run(`INSERT INTO inquiries (customer_id, source, message, product_id, status, priority) VALUES (NULL, 'whatsapp', ?, ?, 'pending', 'medium')`, [`استفسار عن ${matchedProduct.name}: ${message}`, matchedProduct.id], () => db.close());
+        saveInquiry(fromNumber, message, matchedProduct.id, `استفسار عن ${matchedProduct.name}: ${message}`, 'medium');
         return r;
     }
 
@@ -220,9 +238,67 @@ async function getAutoReply(message, fromNumber) {
 
     if (conv && conv.productId && conv.step !== ORDER_STEPS.CONFIRMED) return `هل تزال مهتماً بـ *${conv.productName}*؟\nأرسل "سعر ${conv.productName}" أو "عايز ${conv.productName}"`;
 
-    const db = getDb();
-    if (db) db.run(`INSERT INTO inquiries (customer_id, source, message, status, priority) VALUES (NULL, 'whatsapp', ?, 'pending', 'low')`, [message], () => db.close());
+    saveInquiry(fromNumber, message, null, message, 'low');
     return null;
+}
+
+// ── Helper: save inquiry ──────────────────────────────────────────
+function saveInquiry(fromNumber, message, productId, inquiryMsg, priority) {
+    const db = getDb();
+    if (!db) return;
+    // Find or create customer
+    db.get('SELECT id FROM customers WHERE whatsapp = ?', [fromNumber], (err, row) => {
+        if (err) { db.close(); return; }
+        const customerId = row ? row.id : null;
+        db.run(
+            'INSERT INTO inquiries (customer_id, source, message, product_id, status, priority) VALUES (?, ?, ?, ?, ?, ?)',
+            [customerId, 'whatsapp', inquiryMsg, productId, 'pending', priority],
+            () => db.close()
+        );
+    });
+}
+
+// ── Helper: save confirmed order ──────────────────────────────────
+function saveOrderToDB(conv, fromNumber, originalMessage) {
+    const db = getDb();
+    if (!db) return;
+
+    // Find or create customer
+    db.get('SELECT id FROM customers WHERE whatsapp = ?', [fromNumber], (err, row) => {
+        if (err) { db.close(); return; }
+        let customerId = row ? row.id : null;
+
+        if (!customerId) {
+            // Create new customer
+            const name = conv.customerName || fromNumber;
+            db.run(
+                'INSERT INTO customers (name, whatsapp, phone) VALUES (?, ?, ?)',
+                [name, fromNumber, fromNumber],
+                function() {
+                    customerId = this.lastID;
+                    createInquiryAndSale(db, customerId, conv, fromNumber);
+                }
+            );
+        } else {
+            createInquiryAndSale(db, customerId, conv, fromNumber);
+        }
+    });
+}
+
+function createInquiryAndSale(db, customerId, conv, fromNumber) {
+    const productPrice = conv.productPrice || 0;
+    const totalAmount = productPrice * conv.quantity;
+
+    const inquiryMsg = `🛒 *طلب واتساب جديد*\n\nالعميل: ${fromNumber}\nالمنتج: ${conv.productName}\nالكمية: ${conv.quantity}\nسعر القطعة: ${productPrice} ج.م\nالإجمالي: ${totalAmount} ج.م\nطريقة الدفع: ${conv.paymentMethod || 'غير محدد'}\n\n📝 الرسالة الأصلية: ${conv.lastMessage || ''}`;
+
+    db.run(
+        'INSERT INTO inquiries (customer_id, source, message, product_id, status, priority) VALUES (?, ?, ?, ?, ?, ?)',
+        [customerId, 'whatsapp', inquiryMsg, conv.productId, 'pending', 'high'],
+        (err) => {
+            if (err) { db.close(); return; }
+            db.close();
+        }
+    );
 }
 
 function initClient() {
@@ -252,7 +328,7 @@ function initClient() {
     if (browserPath) opts.executablePath = browserPath;
 
     client = new Client({
-        authStrategy: new LocalAuth({ dataPath: path.join(__dirname, '.wwebjs_auth') }),
+        authStrategy: new LocalAuth({ dataPath: process.env.WWEBJS_AUTH_PATH || path.join(__dirname, '.wwebjs_auth') }),
         puppeteer: opts,
     });
 
@@ -306,7 +382,10 @@ function initClient() {
                 });
             }
 
-            conversations[number] = { lastMessage: msg.body, timestamp: Date.now() };
+            if (!conversations[number]) conversations[number] = {};
+            conversations[number].customerName = name;
+            conversations[number].lastMessage = msg.body;
+            conversations[number].timestamp = Date.now();
             const result = await getAutoReply(msg.body, number);
             if (result) setTimeout(() => { try { client.sendMessage(msg.from, result); } catch {} }, 1500);
 
