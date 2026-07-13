@@ -19,6 +19,7 @@
     }
   ],
   "env": {
-    "SECRET_KEY": "change-this-to-a-random-secret-key"
+    "SECRET_KEY": "change-this-to-a-random-secret-key",
+    "WA_SERVER": "https://printing-app-whatsapp-production.up.railway.app"
   }
 }
