@@ -1,0 +1,35 @@
+name: Deploy WhatsApp Server
+
+on:
+  workflow_dispatch:
+    inputs:
+      platform:
+        description: Deployment platform
+        required: true
+        default: render
+        type: choice
+        options:
+          - render
+          - railway
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Deploy to Render
+        if: inputs.platform == 'render'
+        env:
+          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+        run: |
+          curl -X POST "https://api.render.com/v1/services/${{ secrets.RENDER_SERVICE_ID }}/deploys" \
+            -H "Authorization: Bearer $RENDER_API_KEY" \
+            -H "Content-Type: application/json"
+
+      - name: Deploy to Railway
+        if: inputs.platform == 'railway'
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+        run: |
+          npx railway up --service ${{ secrets.RAILWAY_SERVICE_ID }}

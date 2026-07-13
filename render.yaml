@@ -10,3 +10,19 @@ services:
         value: /app/printing_app.db
       - key: PORT
         value: 10000
+
+  - type: web
+    name: printing-app-whatsapp
+    runtime: docker
+    dockerfilePath: ./whatsapp_server/Dockerfile
+    plan: free
+    healthCheckPath: /api/ping
+    envVars:
+      - key: PORT
+        value: 3000
+      - key: DATABASE_PATH
+        value: /tmp/printing_app.db
+    disk:
+      name: whatsapp-data
+      mountPath: /app/.wwebjs_auth
+      sizeGB: 1

@@ -318,16 +318,20 @@ def whatsapp_status():
     if WA_SERVER and WA_SERVER != 'http://localhost:3000':
         try:
             resp = requests.get(f"{WA_SERVER}/api/status", timeout=3)
-            return jsonify(resp.json())
+            data = resp.json()
+            if data.get('connected'):
+                return jsonify(data)
         except:
             pass
-    # محاكاة محلية (لأن Vercel مايدعمش Node.js WhatsApp)
+    # على Vercel: واتساب مش متاح (لأنه محتاج Node.js + Puppeteer + تشغيل مستمر)
     return jsonify({
-        'connected': _wa_connected,
+        'connected': False,
         'connecting': False,
         'qr': False,
-        'phone': _wa_phone,
-        'error': None if _wa_connected else 'whatsapp_server_not_available',
+        'phone': '',
+        'platform': 'vercel',
+        'message': 'واتساب غير متاح على هذه النسخة - لتفعيله، انشر خادم واتساب منفصل',
+        'error': 'whatsapp_server_not_available',
     })
 
 @app.route('/api/whatsapp/replies', methods=['POST'])

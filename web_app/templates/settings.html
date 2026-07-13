@@ -271,6 +271,10 @@ async function refreshWAStatus() {
             if (qrRes.data.qrDataUrl) {
                 document.getElementById('waQrImage').src = qrRes.data.qrDataUrl;
             }
+        } else if (data.platform === 'vercel') {
+            document.getElementById('waStatusText').className = 'text-muted';
+            document.getElementById('waStatusText').textContent = 'ℹ️ ' + (data.message || 'غير متاح على هذه النسخة');
+            document.getElementById('waQrContainer').style.display = 'none';
         } else {
             document.getElementById('waStatusText').className = 'text-danger';
             document.getElementById('waStatusText').textContent = '🔴 الخادم متوقف';
