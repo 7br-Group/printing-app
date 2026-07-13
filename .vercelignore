@@ -1,0 +1,18 @@
+venv
+node_modules
+dist
+build
+__pycache__
+*.pyc
+.wwebjs_auth
+.git
+.gitignore
+*.db
+*.bat
+*.spec
+*.ipynb
+*.md
+node.exe
+BUILD_APK_ON_COLAB.ipynb
+exe_output.txt
+"تشغيل cmd.txt"
