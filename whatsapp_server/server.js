@@ -14,8 +14,27 @@ let phone = '';
 let currentQr = '';
 let lastQr = '';
 let autoReplies = {};
+const REPLIES_FILE = process.env.REPLIES_FILE || path.join(__dirname, 'auto_replies.json');
 let welcomeMessage = '';
 let reconnectAttempts = 0;
+
+function loadRepliesFromDisk() {
+    try {
+        if (fs.existsSync(REPLIES_FILE)) {
+            const data = JSON.parse(fs.readFileSync(REPLIES_FILE, 'utf8'));
+            autoReplies = data.replies || {};
+            welcomeMessage = data.welcome || '';
+            console.log('Auto-replies loaded from disk:', Object.keys(autoReplies).length, 'keywords');
+        }
+    } catch (e) { console.error('Error loading replies:', e.message); }
+}
+
+function saveRepliesToDisk(replies, welcome) {
+    try {
+        fs.writeFileSync(REPLIES_FILE, JSON.stringify({ replies, welcome }, null, 2), 'utf8');
+        console.log('Auto-replies saved to disk:', Object.keys(replies || {}).length, 'keywords');
+    } catch (e) { console.error('Error saving replies:', e.message); }
+}
 const MAX_RECONNECT_DELAY = 60000;
 
 const conversations = {};
@@ -423,6 +442,7 @@ app.post('/api/replies', (req, res) => {
     const { replies, welcome } = req.body;
     if (replies) autoReplies = replies;
     if (welcome !== undefined) welcomeMessage = welcome;
+    saveRepliesToDisk(autoReplies, welcomeMessage);
     console.log('Auto-replies updated:', Object.keys(autoReplies).length, 'keywords');
     res.json({ success: true });
 });
@@ -450,7 +470,8 @@ app.get('/api/interests', (req, res) => res.json(customerInterests));
 const PORT = parseInt(process.env.PORT || '3000');
 app.listen(PORT, () => {
     console.log(`WhatsApp server running on http://localhost:${PORT}`);
-    refreshProducts().then(() => {
+    loadRepliesFromDisk();
+refreshProducts().then(() => {
         console.log(`Loaded ${productsCache.length} products from DB`);
         initClient();
     });

@@ -358,6 +358,19 @@ def whatsapp_replies():
             pass
     return jsonify({'success': True})
 
+
+    db = get_db()
+    try:
+        replies_str = db.get_setting('auto_replies', '{}')
+        welcome = db.get_setting('auto_welcome', '')
+        try:
+            replies = json.loads(replies_str)
+        except:
+            replies = {}
+        return jsonify({'replies': replies, 'welcome': welcome})
+    finally:
+        db.close()
+
 @app.route('/api/whatsapp/send', methods=['POST'])
 @login_required
 def whatsapp_send():
