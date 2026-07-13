@@ -1,0 +1,24 @@
+{
+  "builds": [
+    {
+      "src": "web_app/app.py",
+      "use": "@vercel/python",
+      "config": {
+        "runtime": "python3.11"
+      }
+    }
+  ],
+  "routes": [
+    {
+      "src": "/static/(.*)",
+      "dest": "web_app/static/$1"
+    },
+    {
+      "src": "/(.*)",
+      "dest": "web_app/app.py"
+    }
+  ],
+  "env": {
+    "DATABASE_PATH": "/tmp/printing_app.db"
+  }
+}
