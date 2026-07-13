@@ -19,7 +19,6 @@
     }
   ],
   "env": {
-    "DATABASE_PATH": "/tmp/printing_app.db",
-    "WA_SERVER": "https://printing-app-whatsapp.onrender.com"
+    "SECRET_KEY": "change-this-to-a-random-secret-key"
   }
 }

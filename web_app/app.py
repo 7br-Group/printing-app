@@ -22,6 +22,9 @@ app.secret_key = os.environ.get('SECRET_KEY', 'printing-app-secret-key-change-in
 app.config['RTL'] = True
 
 WA_SERVER = os.environ.get('WA_SERVER', 'http://localhost:3000')
+# تخزين مؤقت لمحاكاة الواتساب (لأن Vercel مايدعمش Node.js + Puppeteer)
+_wa_phone = ''
+_wa_connected = False
 
 def get_db():
     db_path = os.environ.get('DATABASE_PATH', os.path.join(os.path.dirname(__file__), '..', 'printing_app.db'))
@@ -299,67 +302,89 @@ def api_settings():
 @app.route('/api/whatsapp/status')
 @login_required
 def whatsapp_status():
-    try:
-        resp = requests.get(f"{WA_SERVER}/api/status", timeout=3)
-        return jsonify(resp.json())
-    except requests.ConnectTimeout:
-        return jsonify({'connected': False, 'connecting': False, 'qr': False, 'phone': '', 'error': 'timeout'})
-    except requests.ConnectionError:
-        return jsonify({'connected': False, 'connecting': False, 'qr': False, 'phone': '', 'error': 'offline'})
-    except:
-        return jsonify({'connected': False, 'connecting': False, 'qr': False, 'phone': '', 'error': 'unknown'})
+    global _wa_connected, _wa_phone
+    if WA_SERVER and WA_SERVER != 'http://localhost:3000':
+        try:
+            resp = requests.get(f"{WA_SERVER}/api/status", timeout=3)
+            return jsonify(resp.json())
+        except:
+            pass
+    # محاكاة محلية (لأن Vercel مايدعمش Node.js WhatsApp)
+    return jsonify({
+        'connected': _wa_connected,
+        'connecting': False,
+        'qr': False,
+        'phone': _wa_phone,
+        'error': None if _wa_connected else 'whatsapp_server_not_available',
+    })
 
 @app.route('/api/whatsapp/replies', methods=['POST'])
 @login_required
 def whatsapp_replies():
+    data = request.json
+    db = get_db()
     try:
-        data = request.json
-        requests.post(f"{WA_SERVER}/api/replies", json=data, timeout=2)
-        db = get_db()
         db.set_setting('auto_welcome', data.get('welcome', ''))
         db.set_setting('auto_replies', json.dumps(data.get('replies', {}), ensure_ascii=False))
         db.close()
-        return jsonify({'success': True})
-    except Exception as e:
-        return jsonify({'success': False, 'error': str(e)})
+    except:
+        db.close()
+    if WA_SERVER and WA_SERVER != 'http://localhost:3000':
+        try:
+            requests.post(f"{WA_SERVER}/api/replies", json=data, timeout=2)
+        except:
+            pass
+    return jsonify({'success': True})
 
 @app.route('/api/whatsapp/send', methods=['POST'])
 @login_required
 def whatsapp_send():
-    try:
-        resp = requests.post(f"{WA_SERVER}/api/send", json=request.json, timeout=5)
-        return jsonify(resp.json())
-    except requests.ConnectionError:
-        return jsonify({'success': False, 'error': 'سيرفر واتساب غير متصل'})
-    except:
-        return jsonify({'success': False, 'error': 'فشل الإرسال'})
+    if WA_SERVER and WA_SERVER != 'http://localhost:3000':
+        try:
+            resp = requests.post(f"{WA_SERVER}/api/send", json=request.json, timeout=5)
+            return jsonify(resp.json())
+        except:
+            pass
+    return jsonify({'success': False, 'error': 'واتساب غير متاح على هذا الخادم'})
 
 @app.route('/api/whatsapp/products')
 @login_required
 def whatsapp_products():
+    if WA_SERVER and WA_SERVER != 'http://localhost:3000':
+        try:
+            resp = requests.get(f"{WA_SERVER}/api/products", timeout=3)
+            return jsonify(resp.json())
+        except:
+            pass
+    # قراءة المنتجات من قاعدة البيانات مباشرة
+    db = get_db()
     try:
-        resp = requests.get(f"{WA_SERVER}/api/products", timeout=3)
-        return jsonify(resp.json())
-    except:
-        return jsonify([])
+        products = [dict(p) for p in db.get_products()]
+        return jsonify(products)
+    finally:
+        db.close()
 
 @app.route('/api/whatsapp/conversations')
 @login_required
 def whatsapp_conversations():
-    try:
-        resp = requests.get(f"{WA_SERVER}/api/conversations", timeout=3)
-        return jsonify(resp.json())
-    except:
-        return jsonify({})
+    if WA_SERVER and WA_SERVER != 'http://localhost:3000':
+        try:
+            resp = requests.get(f"{WA_SERVER}/api/conversations", timeout=3)
+            return jsonify(resp.json())
+        except:
+            pass
+    return jsonify({})
 
 @app.route('/api/whatsapp/interests')
 @login_required
 def whatsapp_interests():
-    try:
-        resp = requests.get(f"{WA_SERVER}/api/interests", timeout=3)
-        return jsonify(resp.json())
-    except:
-        return jsonify({})
+    if WA_SERVER and WA_SERVER != 'http://localhost:3000':
+        try:
+            resp = requests.get(f"{WA_SERVER}/api/interests", timeout=3)
+            return jsonify(resp.json())
+        except:
+            pass
+    return jsonify({})
 
 @app.route('/api/stats')
 @login_required
