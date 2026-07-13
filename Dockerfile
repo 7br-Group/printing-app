@@ -3,8 +3,8 @@ FROM nikolaik/python-nodejs:python3.12-nodejs22
 WORKDIR /app
 
 # Copy Python requirements
-COPY requirements.txt web_app/requirements.txt ./
-RUN pip install --no-cache-dir -r requirements.txt 2>/dev/null || true
+COPY requirements-desktop.txt web_app/requirements.txt ./
+RUN pip install --no-cache-dir -r requirements-desktop.txt 2>/dev/null || true
 RUN pip install --no-cache-dir flask requests gunicorn
 
 # Copy Node.js server

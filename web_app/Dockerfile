@@ -3,6 +3,8 @@ FROM nikolaik/python-nodejs:python3.12-nodejs22
 WORKDIR /app
 
 # Copy Python requirements
+COPY requirements-desktop.txt .
+RUN pip install --no-cache-dir -r requirements-desktop.txt 2>/dev/null || true
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
