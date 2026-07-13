@@ -1,0 +1,70 @@
+[build-system]
+requires = ["setuptools>=64", "wheel"]
+build-backend = "setuptools.backends._legacy:_Backend"
+
+[project]
+name = "printing_app"
+version = "1.0.0"
+description = "نظام إدارة المطبعة - Printing Management System"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "Proprietary" }
+authors = [
+    { name = "Printing App Developer" },
+]
+
+dependencies = [
+    "PySide6>=6.5.0",
+    "flask>=3.0",
+    "requests>=2.31",
+    "gunicorn>=21.2",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pyinstaller>=6.0.0",
+    "buildozer",
+]
+web = [
+    "flask>=3.0",
+    "gunicorn>=21.2",
+    "requests>=2.31",
+]
+mobile = [
+    "kivy",
+    "pyjnius",
+]
+
+[project.scripts]
+printing-app = "main:main"
+printing-app-web = "run_web:main"
+
+[tool.setuptools]
+packages = [
+    "database",
+    "gui",
+    "utils",
+    "web_app",
+    "mobile_app",
+]
+
+[tool.setuptools.package-data]
+database = ["*.py"]
+gui = ["*.py"]
+utils = ["*.py"]
+web_app = ["templates/*", "static/*"]
+mobile_app = ["*.py"]
+
+[tool.pyinstaller]
+output_dir = "dist"
+clean = true
+onefile = true
+windowed = true
+name = "PrintingApp"
+hiddenimports = ["requests"]
+datas = [
+    "resources:resources",
+    "database:database",
+    "gui:gui",
+    "utils:utils",
+]
