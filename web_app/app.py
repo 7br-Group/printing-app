@@ -1,4 +1,4 @@
-import os, sys, json, requests
+import os, sys, json, requests, shutil
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
 from flask import Flask, render_template, request, jsonify, redirect, url_for, session
@@ -27,7 +27,19 @@ _wa_phone = ''
 _wa_connected = False
 
 def get_db():
-    db_path = os.environ.get('DATABASE_PATH', os.path.join(os.path.dirname(__file__), '..', 'printing_app.db'))
+    db_path = os.environ.get('DATABASE_PATH', '')
+    if not db_path:
+        local_path = os.path.join(os.path.dirname(__file__), '..', 'printing_app.db')
+        # على Vercel: /tmp هو المسار الوحيد القابل للكتابة
+        if os.environ.get('VERCEL'):
+            db_path = '/tmp/printing_app.db'
+            if os.path.exists(local_path):
+                try:
+                    shutil.copy2(local_path, db_path)
+                except:
+                    pass
+        else:
+            db_path = local_path
     return DatabaseManager(db_path)
 
 def get_setting(key, default=''):
