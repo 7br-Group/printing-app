@@ -49,7 +49,27 @@ function getDb() {
 }
 
 let productsCache = [];
+const FLASK_API_URL = process.env.FLASK_API_URL || '';
 async function refreshProducts() {
+    // Try fetching from Flask API first
+    if (FLASK_API_URL) {
+        try {
+            const http = FLASK_API_URL.startsWith('https') ? require('https') : require('http');
+            const data = await new Promise((resolve, reject) => {
+                http.get(`${FLASK_API_URL}/api/external/products`, (res) => {
+                    let body = '';
+                    res.on('data', c => body += c);
+                    res.on('end', () => resolve(body));
+                }).on('error', reject);
+            });
+            const parsed = JSON.parse(data);
+            if (Array.isArray(parsed) && parsed.length) {
+                productsCache = parsed;
+                return;
+            }
+        } catch {}
+    }
+    // Fallback to local DB
     try {
         const db = getDb();
         if (!db) return;

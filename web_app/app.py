@@ -421,6 +421,16 @@ def whatsapp_interests():
             pass
     return jsonify({})
 
+@app.route('/api/external/products')
+def external_products():
+    """Public endpoint for WhatsApp server to fetch products"""
+    db = get_db()
+    try:
+        products = [dict(p) for p in db.get_products()]
+        return jsonify(products)
+    finally:
+        db.close()
+
 @app.route('/api/stats')
 @login_required
 def api_stats():
