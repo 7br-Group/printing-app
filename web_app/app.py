@@ -317,13 +317,19 @@ def whatsapp_status():
     global _wa_connected, _wa_phone
     if WA_SERVER and WA_SERVER != 'http://localhost:3000':
         try:
-            resp = requests.get(f"{WA_SERVER}/api/status", timeout=3)
+            resp = requests.get(f"{WA_SERVER}/api/status", timeout=5)
             data = resp.json()
-            if data.get('connected'):
-                return jsonify(data)
-        except:
-            pass
-    # على Vercel: واتساب مش متاح (لأنه محتاج Node.js + Puppeteer + تشغيل مستمر)
+            return jsonify(data)
+        except requests.exceptions.RequestException as e:
+            return jsonify({
+                'connected': False,
+                'connecting': False,
+                'qr': False,
+                'phone': '',
+                'platform': 'vercel',
+                'message': f'خادم واتساب الخارجي لا يستجيب: {str(e)}',
+                'error': 'wa_server_unreachable',
+            })
     return jsonify({
         'connected': False,
         'connecting': False,
