@@ -19,6 +19,7 @@
     }
   ],
   "env": {
-    "DATABASE_PATH": "/tmp/printing_app.db"
+    "DATABASE_PATH": "/tmp/printing_app.db",
+    "WA_SERVER": "https://printing-app-whatsapp.onrender.com"
   }
 }
